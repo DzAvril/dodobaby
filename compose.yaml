@@ -13,12 +13,9 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"
     volumes:
-      - dodobaby_data:/app/data
+      - ./data:/app/data
     tmpfs:
       - /tmp:size=512m,mode=1777
     shm_size: 256mb
     security_opt:
       - no-new-privileges:true
-
-volumes:
-  dodobaby_data:
