@@ -106,6 +106,9 @@ jobs:
             exit 1
           fi
 
+          telegram_bot_token="$(printf '%s' "$TELEGRAM_BOT_TOKEN" | tr -d '[:space:]')"
+          telegram_chat_id="$(printf '%s' "$TELEGRAM_CHAT_ID" | tr -d '[:space:]')"
+
           printf -v message '✅ dodobaby 镜像发布成功\n仓库: %s\n提交: %.7s\n镜像: %s/dodobaby:latest\nAction: %s/%s/actions/runs/%s' \
             "$GITHUB_REPOSITORY" \
             "$GITHUB_SHA" \
@@ -117,6 +120,6 @@ jobs:
           curl --fail-with-body --silent --show-error \
             --output /dev/null \
             --request POST \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --url "https://api.telegram.org/bot${telegram_bot_token}/sendMessage" \
+            --data-urlencode "chat_id=${telegram_chat_id}" \
             --data-urlencode "text=${message}"
