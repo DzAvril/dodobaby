@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: .
+    image: dodobaby-food-diary:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/data/dodobaby.db
+      CHROMIUM_PATH: /usr/bin/chromium
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - dodobaby_data:/app/data
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    shm_size: 256mb
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  dodobaby_data:
