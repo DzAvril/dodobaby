@@ -36,8 +36,8 @@ jobs:
     needs: build
     if: >-
       github.event_name != 'pull_request' &&
-      (secrets.DOCKERHUB_USERNAME != '' || vars.DOCKERHUB_USERNAME != '') &&
-      (secrets.DOCKERHUB_TOKEN != '' || vars.DOCKERHUB_TOKEN != '')
+      env.DOCKERHUB_USERNAME != '' &&
+      env.DOCKERHUB_TOKEN != ''
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
