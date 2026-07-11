@@ -28,7 +28,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium fonts-noto-cjk dumb-init ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 nextjs \
-    && useradd --system --uid 1001 --gid nextjs nextjs
+    && useradd --system --create-home --home-dir /home/nextjs --uid 1001 --gid nextjs nextjs
 
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
