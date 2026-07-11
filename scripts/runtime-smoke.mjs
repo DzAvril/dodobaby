@@ -19,6 +19,18 @@ function currentMinuteInShanghai() {
   return { date: `${values.year}-${values.month}-${values.day}`, time: `${values.hour}:${values.minute}` };
 }
 
+function shiftDate(date, days) {
+  const shifted = new Date(`${date}T00:00:00Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function shiftLocalMinute(date, time, minutes) {
+  const shifted = new Date(`${date}T${time}:00Z`);
+  shifted.setUTCMinutes(shifted.getUTCMinutes() + minutes);
+  return { date: shifted.toISOString().slice(0, 10), time: shifted.toISOString().slice(11, 16) };
+}
+
 function sessionCookie() {
   const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 300, nonce: "runtime-smoke" }))
     .toString("base64url");
@@ -60,8 +72,18 @@ const yesterday = previousDate.toISOString().slice(0, 10);
 const nextDate = new Date(`${date}T00:00:00Z`);
 nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 const tomorrow = nextDate.toISOString().slice(0, 10);
+const twoDaysAgo = shiftDate(date, -2);
+const oneMinuteAgo = shiftLocalMinute(date, time, -1);
 expectStatus(await request(`/api/feedings?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated feedings");
 expectStatus(await request(`/api/diapers?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated diapers");
+expectStatus(await request(`/api/sleeps?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated sleeps");
+expectStatus(await request("/api/sleeps/missing-record", {
+  method: "PATCH",
+  headers: { cookie: "", "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: date, startedTime: time, endedDate: null, endedTime: null }),
+}), 401, "unauthenticated sleep update");
+expectStatus(await request("/api/sleeps/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated sleep delete");
+expectStatus(await request("/api/sleeps/missing-record/end", { method: "POST", headers: { cookie: "" } }), 401, "unauthenticated sleep end");
 expectStatus(await request("/api/diapers/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated diaper delete");
 expectStatus(await request("/api/diapers/missing-record", {
   method: "PATCH",
@@ -94,6 +116,24 @@ expectStatus(await request("/api/diapers/missing-record", {
   method: "DELETE",
   headers: { origin: "https://evil.example" },
 }), 403, "cross-origin diaper delete");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ startedDate: date, startedTime: time, endedDate: null, endedTime: null }),
+}), 403, "cross-origin sleep write");
+expectStatus(await request("/api/sleeps/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ startedDate: date, startedTime: time, endedDate: null, endedTime: null }),
+}), 403, "cross-origin sleep update");
+expectStatus(await request("/api/sleeps/missing-record", {
+  method: "DELETE",
+  headers: { origin: "https://evil.example" },
+}), 403, "cross-origin sleep delete");
+expectStatus(await request("/api/sleeps/missing-record/end", {
+  method: "POST",
+  headers: { origin: "https://evil.example" },
+}), 403, "cross-origin sleep end");
 expectStatus(await request("/api/vaccines", {
   method: "POST",
   headers: { "content-type": "application/json", origin: "https://evil.example" },
@@ -114,6 +154,206 @@ expectStatus(await request("/api/baby", {
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ name: "Smoke Baby", birthDate: "2025-01-01", timezone: "Asia/Shanghai" }),
 }), 201, "create baby");
+
+expectStatus(await request(`/api/sleeps?date=${tomorrow}`), 400, "reject future sleep query");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: tomorrow, startedTime: "08:00", endedDate: null, endedTime: null }),
+}), 400, "reject future sleep date");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "08:00", endedDate: yesterday, endedTime: null }),
+}), 400, "reject incomplete sleep end");
+
+const futureStart = shiftLocalMinute(date, time, 1);
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: futureStart.date, startedTime: futureStart.time, endedDate: null, endedTime: null }),
+}), 400, "reject future sleep start");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "10:00", endedDate: yesterday, endedTime: "10:00" }),
+}), 400, "reject zero sleep duration");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "11:00", endedDate: yesterday, endedTime: "10:00" }),
+}), 400, "reject reversed sleep interval");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: twoDaysAgo, startedTime: "00:00", endedDate: yesterday, endedTime: "00:01" }),
+}), 400, "reject sleep longer than 24 hours");
+
+const fullDaySleep = await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: twoDaysAgo, startedTime: "00:00", endedDate: yesterday, endedTime: "00:00", note: "正好二十四小时" }),
+});
+expectStatus(fullDaySleep, 201, "allow exactly 24-hour sleep");
+assert.equal(fullDaySleep.body.record.durationMinutes, 1_440);
+expectStatus(await request(`/api/sleeps/${fullDaySleep.body.record.id}`, { method: "DELETE" }), 200, "delete 24-hour sleep");
+
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: twoDaysAgo, startedTime: "00:00", endedDate: null, endedTime: null, note: "模拟忘记结束" }),
+}), 400, "reject creating stale active sleep");
+
+const earlierSleep = await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "08:00", endedDate: yesterday, endedTime: "09:00" }),
+});
+expectStatus(earlierSleep, 201, "create earlier sleep");
+const sleepBirthDateConflict = await request("/api/baby", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "Smoke Baby", birthDate: date, timezone: "Asia/Shanghai" }),
+});
+expectStatus(sleepBirthDateConflict, 400, "protect earliest sleep date");
+assert.match(sleepBirthDateConflict.body.error, /已有睡眠记录/);
+expectStatus(await request(`/api/sleeps/${earlierSleep.body.record.id}`, { method: "DELETE" }), 200, "delete earlier sleep");
+
+const crossMidnightSleep = await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    startedDate: twoDaysAgo,
+    startedTime: "23:30",
+    endedDate: yesterday,
+    endedTime: "01:15",
+    note: "  跨午夜睡眠  ",
+  }),
+});
+expectStatus(crossMidnightSleep, 201, "create cross-midnight sleep");
+assert.equal(crossMidnightSleep.body.record.durationMinutes, 105);
+assert.equal(crossMidnightSleep.body.record.note, "跨午夜睡眠");
+assert.equal(crossMidnightSleep.body.record.recordTimezone, "Asia/Shanghai");
+
+let firstSleepDay = await request(`/api/sleeps?date=${twoDaysAgo}`);
+expectStatus(firstSleepDay, 200, "load first cross-midnight day");
+assert.equal(firstSleepDay.body.summary.sessionCount, 1);
+assert.equal(firstSleepDay.body.summary.totalMinutes, 30);
+assert.equal(firstSleepDay.body.records[0].dayMinutes, 30);
+let secondSleepDay = await request(`/api/sleeps?date=${yesterday}`);
+expectStatus(secondSleepDay, 200, "load second cross-midnight day");
+assert.equal(secondSleepDay.body.summary.sessionCount, 1);
+assert.equal(secondSleepDay.body.summary.totalMinutes, 75);
+assert.equal(secondSleepDay.body.records[0].dayMinutes, 75);
+
+const updatedCrossMidnightSleep = await request(`/api/sleeps/${crossMidnightSleep.body.record.id}`, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    startedDate: twoDaysAgo,
+    startedTime: "23:30",
+    endedDate: yesterday,
+    endedTime: "01:15",
+    note: "  已更新的跨午夜记录  ",
+  }),
+});
+expectStatus(updatedCrossMidnightSleep, 200, "update completed sleep");
+assert.equal(updatedCrossMidnightSleep.body.record.note, "已更新的跨午夜记录");
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "00:30", endedDate: yesterday, endedTime: "02:00" }),
+}), 409, "reject overlapping sleep");
+expectStatus(await request("/api/sleeps/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: yesterday, startedTime: "03:00", endedDate: yesterday, endedTime: "04:00" }),
+}), 404, "isolate missing sleep update");
+expectStatus(await request("/api/sleeps/missing-record/end", { method: "POST" }), 404, "isolate missing sleep end");
+expectStatus(await request("/api/sleeps/missing-record", { method: "DELETE" }), 404, "isolate missing sleep delete");
+
+const activeSleep = await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: oneMinuteAgo.date, startedTime: oneMinuteAgo.time, endedDate: null, endedTime: null, note: "进行中的睡眠" }),
+});
+expectStatus(activeSleep, 201, "start active sleep");
+assert.equal(activeSleep.body.record.endedAt, null);
+expectStatus(await request("/api/sleeps", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: date, startedTime: time, endedDate: null, endedTime: null }),
+}), 409, "reject duplicate active sleep");
+const activeSleepDay = await request(`/api/sleeps?date=${date}`);
+expectStatus(activeSleepDay, 200, "load active sleep");
+assert.equal(activeSleepDay.body.active.id, activeSleep.body.record.id);
+
+const concurrentPatchJson = JSON.stringify({
+  startedDate: oneMinuteAgo.date,
+  startedTime: oneMinuteAgo.time,
+  endedDate: null,
+  endedTime: null,
+  note: "不应重新打开已结束记录",
+});
+const encoder = new TextEncoder();
+const splitAt = Math.floor(concurrentPatchJson.length / 2);
+let releasePatchBody;
+let markPatchBodyStarted;
+const patchBodyGate = new Promise((resolve) => { releasePatchBody = resolve; });
+const patchBodyStarted = new Promise((resolve) => { markPatchBodyStarted = resolve; });
+let patchChunk = 0;
+const slowPatchBody = new ReadableStream({
+  async pull(controller) {
+    if (patchChunk === 0) {
+      patchChunk += 1;
+      controller.enqueue(encoder.encode(concurrentPatchJson.slice(0, splitAt)));
+      markPatchBodyStarted();
+      return;
+    }
+    if (patchChunk === 1) {
+      patchChunk += 1;
+      await patchBodyGate;
+      controller.enqueue(encoder.encode(concurrentPatchJson.slice(splitAt)));
+      controller.close();
+    }
+  },
+});
+const slowPatchPromise = fetch(`${baseUrl}/api/sleeps/${activeSleep.body.record.id}`, {
+  method: "PATCH",
+  headers: { cookie, origin, "content-type": "application/json" },
+  body: slowPatchBody,
+  duplex: "half",
+}).then(async (response) => {
+  const text = await response.text();
+  let body = text;
+  try { body = JSON.parse(text); } catch { /* response body remains text */ }
+  return { response, body };
+});
+await patchBodyStarted;
+await new Promise((resolve) => setTimeout(resolve, 100));
+let endedSleep;
+try {
+  endedSleep = await request(`/api/sleeps/${activeSleep.body.record.id}/end`, { method: "POST" });
+} finally {
+  releasePatchBody();
+}
+expectStatus(endedSleep, 200, "end active sleep");
+assert.notEqual(endedSleep.body.record.endedAt, null);
+expectStatus(await slowPatchPromise, 409, "prevent stale active patch from reopening ended sleep");
+expectStatus(await request(`/api/sleeps/${activeSleep.body.record.id}/end`, { method: "POST" }), 409, "reject duplicate sleep end");
+expectStatus(await request(`/api/sleeps/${activeSleep.body.record.id}`, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ startedDate: oneMinuteAgo.date, startedTime: oneMinuteAgo.time, endedDate: null, endedTime: null }),
+}), 400, "reject changing completed sleep back to active");
+
+expectStatus(await request(`/api/sleeps/${crossMidnightSleep.body.record.id}`, { method: "DELETE" }), 200, "delete cross-midnight sleep");
+expectStatus(await request(`/api/sleeps/${activeSleep.body.record.id}`, { method: "DELETE" }), 200, "delete ended sleep");
+expectStatus(await request(`/api/sleeps/${activeSleep.body.record.id}`, { method: "DELETE" }), 404, "delete missing sleep");
+firstSleepDay = await request(`/api/sleeps?date=${twoDaysAgo}`);
+secondSleepDay = await request(`/api/sleeps?date=${yesterday}`);
+assert.equal(firstSleepDay.body.records.length, 0);
+assert.equal(secondSleepDay.body.records.length, 0);
 
 expectStatus(await request("/api/vaccines", {
   method: "POST",
@@ -436,4 +676,4 @@ const pdfBytes = Buffer.from(await pdfExport.arrayBuffer());
 assert.equal(pdfBytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.ok(pdfBytes.length > 1_000, `PDF export is unexpectedly small: ${pdfBytes.length} bytes`);
 
-console.log("Runtime smoke passed: auth, origin, diaper, feeding and vaccination CRUD, timeline protection, summaries, and PDF export");
+console.log("Runtime smoke passed: auth, origin, sleep, diaper, feeding and vaccination CRUD, timeline protection, summaries, and PDF export");

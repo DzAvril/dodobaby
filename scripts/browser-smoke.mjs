@@ -21,6 +21,26 @@ function shiftDate(date, days) {
   return shifted.toISOString().slice(0, 10);
 }
 
+function shiftLocalMinute(date, time, minutes) {
+  const shifted = new Date(`${date}T${time}:00Z`);
+  shifted.setUTCMinutes(shifted.getUTCMinutes() + minutes);
+  return { date: shifted.toISOString().slice(0, 10), time: shifted.toISOString().slice(11, 16) };
+}
+
+function currentMinuteInShanghai() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return { date: `${values.year}-${values.month}-${values.day}`, time: `${values.hour}:${values.minute}` };
+}
+
 async function authenticatedContext(browser, viewport) {
   const context = await browser.newContext({ viewport });
   await context.addCookies([{
@@ -194,7 +214,8 @@ try {
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "日常记录" }).waitFor();
   await page.getByRole("heading", { name: "成长与健康" }).waitFor();
-  assert.equal(await page.locator(".home-focus-card").count(), 5);
+  assert.equal(await page.locator(".home-focus-card").count(), 6);
+  await page.getByRole("link", { name: /查看睡眠记录/ }).waitFor();
   await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
 
   await page.goto(`${baseUrl}/diapers`, { waitUntil: "networkidle" });
@@ -300,6 +321,134 @@ try {
   await page.getByRole("button", { name: "重新加载" }).click();
   await page.locator(".diaper-record-card").filter({ hasText: "留给浏览器测试" }).waitFor();
   assert.equal(await diaperError.count(), 0);
+
+  await page.goto(`${baseUrl}/sleep`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /睡眠记录/ }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  await page.locator(".sleep-state-card.empty").waitFor();
+  const sleepDateInput = page.locator('input[aria-label="查看睡眠日期"]');
+  const sleepToday = await sleepDateInput.inputValue();
+  const sleepPreviousDate = shiftDate(sleepToday, -1);
+  const sleepTwoDaysAgo = shiftDate(sleepToday, -2);
+  const sleepError = page.locator('.module-error[role="alert"]');
+
+  const manualSleepTrigger = page.getByRole("button", { name: "补录睡眠" }).first();
+  await manualSleepTrigger.click();
+  let manualSleepDialog = page.getByRole("dialog", { name: "补录睡眠" });
+  await manualSleepDialog.waitFor();
+  await page.keyboard.press("Escape");
+  await manualSleepDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.textContent?.includes("补录睡眠"));
+
+  await page.getByRole("button", { name: "前一天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepPreviousDate);
+  await page.locator(".sleep-state-card.empty").waitFor();
+  await page.getByRole("button", { name: "补录睡眠" }).first().click();
+  manualSleepDialog = page.getByRole("dialog", { name: "补录睡眠" });
+  await manualSleepDialog.locator('input[type="date"]').nth(0).fill(sleepTwoDaysAgo);
+  await manualSleepDialog.locator('input[type="time"]').nth(0).fill("23:30");
+  await manualSleepDialog.locator('input[type="date"]').nth(1).fill(sleepPreviousDate);
+  await manualSleepDialog.locator('input[type="time"]').nth(1).fill("01:15");
+  const crossMidnightNote = `跨午夜浏览器测试-${Date.now()}`;
+  await manualSleepDialog.locator("textarea").fill(crossMidnightNote);
+  const manualSave = manualSleepDialog.getByRole("button", { name: "保存补录" });
+  assert.equal(await manualSave.isEnabled(), true);
+  await manualSave.click();
+  await manualSleepDialog.waitFor({ state: "hidden" });
+
+  let crossMidnightCard = page.locator(".sleep-record-card").filter({ hasText: crossMidnightNote });
+  await crossMidnightCard.waitFor();
+  assert.match(await crossMidnightCard.textContent(), /前一日开始/);
+  assert.match(await crossMidnightCard.textContent(), /本日计入 1 小时 15 分钟/);
+  await crossMidnightCard.getByRole("button", { name: /编辑/ }).click();
+  const sleepEditDialog = page.getByRole("dialog", { name: "编辑睡眠" });
+  const updatedSleepNote = `${crossMidnightNote}-已编辑`;
+  await sleepEditDialog.locator("textarea").fill(updatedSleepNote);
+  await sleepEditDialog.getByRole("button", { name: "保存修改" }).click();
+  await sleepEditDialog.waitFor({ state: "hidden" });
+  crossMidnightCard = page.locator(".sleep-record-card").filter({ hasText: updatedSleepNote });
+  await crossMidnightCard.waitFor();
+
+  await page.route("**/api/sleeps/*", (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ error: "模拟睡眠删除失败" }),
+    });
+  });
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await crossMidnightCard.getByRole("button", { name: /删除/ }).click();
+  await sleepError.waitFor();
+  assert.match(await sleepError.textContent(), /模拟睡眠删除失败/);
+  assert.equal(await crossMidnightCard.count(), 1);
+  assert.equal(await crossMidnightCard.getByRole("button", { name: /删除/ }).isEnabled(), true);
+  await page.unroute("**/api/sleeps/*");
+
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepToday);
+  await page.getByRole("button", { name: "开始睡眠" }).first().click();
+  const startSleepDialog = page.getByRole("dialog", { name: "开始睡眠" });
+  const startDateInput = startSleepDialog.locator('input[type="date"]');
+  const startTimeInput = startSleepDialog.locator('input[type="time"]');
+  const safeStart = shiftLocalMinute(await startDateInput.inputValue(), await startTimeInput.inputValue(), -1);
+  await startDateInput.fill(safeStart.date);
+  await startTimeInput.fill(safeStart.time);
+  const activeSleepNote = `进行中浏览器测试-${Date.now()}`;
+  await startSleepDialog.locator("textarea").fill(activeSleepNote);
+  await startSleepDialog.getByRole("button", { name: "确认开始" }).click();
+  await startSleepDialog.waitFor({ state: "hidden" });
+  const activeSleepCard = page.locator(".sleep-active-card");
+  await activeSleepCard.waitFor();
+  await page.locator(".sleep-record-card.active").filter({ hasText: activeSleepNote }).waitFor();
+
+  await page.getByRole("button", { name: "前一天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepPreviousDate);
+  await crossMidnightCard.waitFor();
+  await activeSleepCard.waitFor();
+  const historicalRecent = await page.locator(".sleep-summary-grid article.recent").textContent();
+  assert.match(historicalRecent, /23:30/);
+  assert.match(historicalRecent, /01:15 结束/);
+  assert.doesNotMatch(historicalRecent, /睡眠中/);
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepToday);
+  await activeSleepCard.waitFor();
+
+  await activeSleepCard.getByRole("button", { name: "结束睡眠" }).click();
+  const endSleepDialog = page.getByRole("dialog", { name: "结束睡眠" });
+  assert.match(await endSleepDialog.textContent(), /结束时间以服务器当前时刻为准/);
+  await endSleepDialog.getByRole("button", { name: "确认结束" }).click();
+  await endSleepDialog.waitFor({ state: "hidden" });
+  await activeSleepCard.waitFor({ state: "detached" });
+  const endedSleepCard = page.locator(".sleep-record-card.completed").filter({ hasText: activeSleepNote });
+  await endedSleepCard.waitFor();
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await endedSleepCard.getByRole("button", { name: /删除/ }).click();
+  await page.locator(".sleep-state-card.empty").waitFor();
+
+  await page.getByRole("button", { name: "前一天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepPreviousDate);
+  crossMidnightCard = page.locator(".sleep-record-card").filter({ hasText: updatedSleepNote });
+  await crossMidnightCard.waitFor();
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await crossMidnightCard.getByRole("button", { name: /删除/ }).click();
+  await page.locator(".sleep-state-card.empty").waitFor();
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看睡眠日期"]')?.value === value, sleepToday);
+
+  await page.route("**/api/sleeps?*", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: "模拟睡眠加载失败" }),
+  }));
+  await page.reload({ waitUntil: "networkidle" });
+  await sleepError.waitFor();
+  assert.match(await sleepError.textContent(), /模拟睡眠加载失败/);
+  assert.equal(await page.locator(".sleep-summary-grid, .sleep-timeline-card, .sleep-state-card").count(), 0);
+  await page.unroute("**/api/sleeps?*");
+  await page.getByRole("button", { name: "重新加载" }).click();
+  await page.locator(".sleep-state-card.empty").waitFor();
+  assert.equal(await sleepError.count(), 0);
   await desktop.close();
 
   const vaccinationDesktop = await authenticatedContext(browser, { width: 1440, height: 900 });
@@ -388,7 +537,7 @@ try {
   const mobilePage = await mobile.newPage();
   await mobilePage.goto(`${baseUrl}/feeding`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
-  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "辅食", "喂养", "尿布", "更多"]);
+  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "喂养", "睡眠", "尿布", "更多"]);
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
   const mobileFeedingTrigger = mobilePage.getByRole("button", { name: "添加喂养" });
@@ -400,6 +549,49 @@ try {
   await mobileFeedingDialog.getByRole("button", { name: "关闭" }).click();
   await mobileFeedingDialog.waitFor({ state: "hidden" });
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加喂养"));
+
+  const mobileSleepEnd = currentMinuteInShanghai();
+  const mobileSleepStart = shiftLocalMinute(mobileSleepEnd.date, mobileSleepEnd.time, -175);
+  const mobileSleepResponse = await mobile.request.post(`${baseUrl}/api/sleeps`, {
+    headers: { origin: new URL(baseUrl).origin },
+    data: {
+      startedDate: mobileSleepStart.date,
+      startedTime: mobileSleepStart.time,
+      endedDate: mobileSleepEnd.date,
+      endedTime: mobileSleepEnd.time,
+      note: "移动端长时长显示测试",
+    },
+  });
+  const mobileSleepResponseText = await mobileSleepResponse.text();
+  assert.equal(mobileSleepResponse.status(), 201, mobileSleepResponseText);
+  const mobileSleepRecord = JSON.parse(mobileSleepResponseText).record;
+
+  await mobilePage.goto(`${baseUrl}/sleep`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "睡眠");
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  const mobileSleepTotal = mobilePage.locator(".sleep-summary-grid article.total strong");
+  assert.equal(await mobileSleepTotal.textContent(), "2 小时 55 分钟");
+  const mobileSleepTotalSize = await mobileSleepTotal.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    text: element.textContent,
+  }));
+  assert.ok(mobileSleepTotalSize.scrollWidth <= mobileSleepTotalSize.clientWidth + 1, `mobile sleep duration is clipped: ${JSON.stringify(mobileSleepTotalSize)}`);
+  await mobilePage.getByRole("button", { name: "补录睡眠" }).first().click();
+  const mobileSleepDialog = mobilePage.getByRole("dialog", { name: "补录睡眠" });
+  const sleepBounds = await mobileSleepDialog.boundingBox();
+  assert.ok(sleepBounds && Math.abs(sleepBounds.y + sleepBounds.height - 844) <= 1, `mobile sleep dialog is not bottom aligned: ${JSON.stringify(sleepBounds)}`);
+  assert.ok(sleepBounds && Math.abs(sleepBounds.width - 390) <= 1, `mobile sleep dialog is not full width: ${JSON.stringify(sleepBounds)}`);
+  const sleepSaveBounds = await mobileSleepDialog.getByRole("button", { name: "保存补录" }).boundingBox();
+  assert.ok(sleepSaveBounds && sleepSaveBounds.y + sleepSaveBounds.height <= 844, `mobile sleep action is not visible: ${JSON.stringify(sleepSaveBounds)}`);
+  await mobileSleepDialog.getByRole("button", { name: "关闭" }).click();
+  await mobileSleepDialog.waitFor({ state: "hidden" });
+  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("补录睡眠"));
+  const mobileSleepDelete = await mobile.request.delete(`${baseUrl}/api/sleeps/${mobileSleepRecord.id}`, {
+    headers: { origin: new URL(baseUrl).origin },
+  });
+  assert.equal(mobileSleepDelete.status(), 200, await mobileSleepDelete.text());
 
   await mobilePage.goto(`${baseUrl}/diapers`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
@@ -418,7 +610,8 @@ try {
 
   await mobilePage.goto(`${baseUrl}/more`, { waitUntil: "networkidle" });
   await mobilePage.getByRole("heading", { name: "更多功能" }).waitFor();
-  assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、密码与辅食库"]);
+  assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["辅食日记辅食计划、食材与实际反馈", "生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、密码与辅食库"]);
+  assert.deepEqual(await mobilePage.locator(".more-section-heading h2").allTextContents(), ["日常记录", "成长与健康", "家庭空间"]);
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
@@ -459,4 +652,4 @@ try {
   await browser.close();
 }
 
-console.log("Browser smoke passed: diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: sleep, diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");

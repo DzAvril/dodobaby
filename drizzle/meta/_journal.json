@@ -43,6 +43,13 @@
       "when": 1783781598361,
       "tag": "0005_tense_strong_guy",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783785722860,
+      "tag": "0006_lovely_sunspot",
+      "breakpoints": true
     }
   ]
 }

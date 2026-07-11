@@ -78,6 +78,33 @@ export const diaperRecordSchema = z
     };
   });
 
+const optionalSleepDateSchema = z
+  .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "结束日期无效")])
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+
+const optionalSleepTimeSchema = z
+  .union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "结束时间无效")])
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+
+export const sleepRecordSchema = z
+  .object({
+    startedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "开始日期无效"),
+    startedTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "开始时间无效"),
+    endedDate: optionalSleepDateSchema,
+    endedTime: optionalSleepTimeSchema,
+    note: z.string().trim().max(300, "备注不能超过 300 个字符").nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (Boolean(value.endedDate) !== Boolean(value.endedTime)) {
+      ctx.addIssue({ code: "custom", message: "结束日期和结束时间需要同时填写", path: [value.endedDate ? "endedTime" : "endedDate"] });
+    }
+  })
+  .transform((value) => ({ ...value, note: value.note || null }));
+
 const optionalVaccinationDateSchema = z
   .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期无效")])
   .nullable()
@@ -172,3 +199,4 @@ export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;
 export type FeedingRecordInput = z.infer<typeof feedingRecordSchema>;
 export type VaccinationRecordInput = z.infer<typeof vaccinationRecordSchema>;
 export type DiaperRecordInput = z.infer<typeof diaperRecordSchema>;
+export type SleepRecordInput = z.infer<typeof sleepRecordSchema>;

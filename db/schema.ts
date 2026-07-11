@@ -1,4 +1,5 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
@@ -161,6 +162,28 @@ export const diaperRecords = sqliteTable(
   (table) => [index("diaper_records_baby_date_time_idx").on(table.babyId, table.diaperDate, table.changedTime)],
 );
 
+export const sleepRecords = sqliteTable(
+  "sleep_records",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    endedAt: integer("ended_at", { mode: "timestamp_ms" }),
+    recordTimezone: text("record_timezone").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("sleep_records_baby_started_at_idx").on(table.babyId, table.startedAt),
+    uniqueIndex("sleep_records_one_active_per_baby").on(table.babyId).where(sql`${table.endedAt} IS NULL`),
+    check(
+      "sleep_records_valid_interval",
+      sql`${table.endedAt} IS NULL OR ${table.endedAt} > ${table.startedAt}`,
+    ),
+  ],
+);
+
 export type Baby = typeof babies.$inferSelect;
 export type MealEntryRow = typeof mealEntries.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
@@ -169,3 +192,4 @@ export type GrowthRecord = typeof growthRecords.$inferSelect;
 export type FeedingRecord = typeof feedingRecords.$inferSelect;
 export type VaccinationRecord = typeof vaccinationRecords.$inferSelect;
 export type DiaperRecord = typeof diaperRecords.$inferSelect;
+export type SleepRecord = typeof sleepRecords.$inferSelect;

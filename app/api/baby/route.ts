@@ -5,6 +5,7 @@ import { getEarliestGrowthRecordDate } from "@/lib/growth";
 import { getEarliestFeedingRecordDate } from "@/lib/feedings";
 import { getEarliestVaccinationRecordDate } from "@/lib/vaccines";
 import { getEarliestDiaperRecordDate } from "@/lib/diapers";
+import { getEarliestSleepRecordDate } from "@/lib/sleeps";
 import { babySchema } from "@/lib/validation";
 import { parseDate, todayInTimezone } from "@/lib/dates";
 
@@ -51,12 +52,14 @@ export async function PATCH(request: Request) {
   let earliestFeedingDate: string | null;
   let earliestVaccinationDate: string | null;
   let earliestDiaperDate: string | null;
+  let earliestSleepDate: string | null;
   try {
-    [earliestGrowthDate, earliestFeedingDate, earliestVaccinationDate, earliestDiaperDate] = await Promise.all([
+    [earliestGrowthDate, earliestFeedingDate, earliestVaccinationDate, earliestDiaperDate, earliestSleepDate] = await Promise.all([
       getEarliestGrowthRecordDate(baby.id),
       getEarliestFeedingRecordDate(baby.id),
       getEarliestVaccinationRecordDate(baby.id),
       getEarliestDiaperRecordDate(baby.id),
+      getEarliestSleepRecordDate(baby.id),
     ]);
   } catch (error) {
     console.error("Baby timeline validation failed", error);
@@ -73,6 +76,9 @@ export async function PATCH(request: Request) {
   }
   if (earliestDiaperDate && parsed.data.birthDate > earliestDiaperDate) {
     return NextResponse.json({ error: `出生日期不能晚于已有尿布记录（${earliestDiaperDate}）` }, { status: 400 });
+  }
+  if (earliestSleepDate && parsed.data.birthDate > earliestSleepDate) {
+    return NextResponse.json({ error: `出生日期不能晚于已有睡眠记录（${earliestSleepDate}）` }, { status: 400 });
   }
 
   try {

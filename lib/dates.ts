@@ -1,5 +1,6 @@
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 export function parseDate(value: string): Date {
   if (!DATE_RE.test(value)) throw new Error("日期格式必须为 YYYY-MM-DD");
@@ -28,7 +29,7 @@ export function todayInTimezone(timezone = "Asia/Shanghai"): string {
 
 export type ZonedMinute = { date: string; time: string };
 
-export function currentMinuteInTimezone(timezone: string, now = new Date()): ZonedMinute {
+export function minuteInTimezone(value: Date, timezone: string): ZonedMinute {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -37,12 +38,57 @@ export function currentMinuteInTimezone(timezone: string, now = new Date()): Zon
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).formatToParts(now);
+  }).formatToParts(value);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return {
     date: `${values.year}-${values.month}-${values.day}`,
     time: `${values.hour}:${values.minute}`,
   };
+}
+
+export function currentMinuteInTimezone(timezone: string, now = new Date()): ZonedMinute {
+  return minuteInTimezone(now, timezone);
+}
+
+function localMinuteAsUtc(date: string, time: string) {
+  const parsedDate = parseDate(date);
+  const match = TIME_RE.exec(time);
+  if (!match) throw new Error("时间格式必须为 HH:mm");
+  return parsedDate.getTime() + Number(match[1]) * 3_600_000 + Number(match[2]) * 60_000;
+}
+
+function timezoneOffsetAt(epochMs: number, timezone: string) {
+  const value = minuteInTimezone(new Date(epochMs), timezone);
+  return localMinuteAsUtc(value.date, value.time) - Math.floor(epochMs / 60_000) * 60_000;
+}
+
+export function zonedDateTimeToDate(date: string, time: string, timezone: string): Date {
+  const wallClockMs = localMinuteAsUtc(date, time);
+  const sampleOffsets = new Set(
+    [-36, -24, -12, 0, 12, 24, 36].map((hours) => timezoneOffsetAt(wallClockMs + hours * 3_600_000, timezone)),
+  );
+  const candidates = [...sampleOffsets]
+    .map((offset) => wallClockMs - offset)
+    .filter((candidate) => {
+      const value = minuteInTimezone(new Date(candidate), timezone);
+      return value.date === date && value.time === time;
+    })
+    .sort((left, right) => left - right);
+
+  if (candidates.length === 0) throw new Error("该日期时间在宝宝时区中不存在");
+  if (candidates.length > 1) throw new Error("该日期时间在宝宝时区中存在歧义，请调整一分钟后重试");
+  return new Date(candidates[0]);
+}
+
+export function dayBoundsInTimezone(date: string, timezone: string) {
+  return {
+    start: zonedDateTimeToDate(date, "00:00", timezone),
+    end: zonedDateTimeToDate(addDays(date, 1), "00:00", timezone),
+  };
+}
+
+export function truncateToMinute(value = new Date()) {
+  return new Date(Math.floor(value.getTime() / 60_000) * 60_000);
 }
 
 export function addDays(value: string, amount: number): string {

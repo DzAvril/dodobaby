@@ -102,13 +102,15 @@ test("长疫苗备注默认折叠且仍可展开查看完整内容", () => {
   assert.match(longNote, new RegExp(longText));
 });
 
-test("桌面六个模块与手机五项可扩展导航保持隔离", () => {
+test("桌面七个模块与手机五项稳定导航保持隔离", () => {
   const shellSource = readFileSync(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
   const homeSource = readFileSync(new URL("../components/HomeDashboard.tsx", import.meta.url), "utf8");
+  const moreSource = readFileSync(new URL("../app/(care)/more/page.tsx", import.meta.url), "utf8");
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const coreNavSource = shellSource.match(/const NAV_ITEMS = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
 
-  assert.equal((coreNavSource.match(/href:/g) ?? []).length, 6);
+  assert.equal((coreNavSource.match(/href:/g) ?? []).length, 7);
+  assert.match(coreNavSource, /href: "\/sleep"/);
   assert.match(coreNavSource, /href: "\/diapers"/);
   assert.match(coreNavSource, /href: "\/vaccines"/);
   assert.doesNotMatch(coreNavSource, /href: "\/settings"/);
@@ -117,9 +119,15 @@ test("桌面六个模块与手机五项可扩展导航保持隔离", () => {
   assert.match(homeSource, /vaccineFailed/);
   assert.match(homeSource, /jsonRequest<DiaperDayResponse>\(`\/api\/diapers\?date=\$\{today\}`\)/);
   assert.match(homeSource, /diaperFailed/);
-  assert.equal((homeSource.match(/className="home-focus-card /g) ?? []).length, 5);
+  assert.match(homeSource, /jsonRequest<SleepDayResponse>\(`\/api\/sleeps\?date=\$\{today\}`\)/);
+  assert.match(homeSource, /sleepFailed/);
+  assert.equal((homeSource.match(/home-focus-card/g) ?? []).length, 6);
   assert.doesNotMatch(homeSource, /className="module-card"/);
-  assert.match(shellSource, /const MOBILE_NAV_ITEMS = \[NAV_ITEMS\[0\], NAV_ITEMS\[1\], NAV_ITEMS\[2\], NAV_ITEMS\[3\], MORE_ITEM\]/);
+  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/feeding"\)/);
+  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/sleep"\)/);
+  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/diapers"\)/);
+  assert.match(moreSource, /href: "\/food"/);
+  assert.match(moreSource, /成长与健康/);
   assert.match(shellSource, /isMoreActive/);
   assert.match(styles, /grid-template-columns: repeat\(5, 1fr\)/);
   assert.match(styles, /padding-bottom: calc\(24px \+ env\(safe-area-inset-bottom\)\)/);

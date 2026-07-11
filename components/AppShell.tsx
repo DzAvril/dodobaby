@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Baby as BabyIcon, ChartNoAxesCombined, Ellipsis, Home, LogOut, Milk, Settings, Syringe, Utensils } from "lucide-react";
+import { Baby as BabyIcon, ChartNoAxesCombined, Ellipsis, Home, LogOut, Milk, MoonStar, Settings, Syringe, Utensils } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import type { Baby } from "@/components/DiaryApp";
 import { formatAge, todayInTimezone } from "@/lib/dates";
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "首页", description: "今日概览", icon: Home },
   { href: "/food", label: "辅食", description: "计划与反馈", icon: Utensils },
   { href: "/feeding", label: "喂养", description: "亲喂与奶量", icon: Milk },
+  { href: "/sleep", label: "睡眠", description: "入睡与醒来", icon: MoonStar },
   { href: "/diapers", label: "尿布", description: "小便与大便", icon: BabyIcon },
   { href: "/growth", label: "生长", description: "测量与趋势", icon: ChartNoAxesCombined },
   { href: "/vaccines", label: "疫苗", description: "计划与接种事实", icon: Syringe },
@@ -18,14 +19,20 @@ const NAV_ITEMS = [
 
 const SETTINGS_ITEM = { href: "/settings", label: "设置" } as const;
 const MORE_ITEM = { href: "/more", label: "更多", icon: Ellipsis } as const;
-const MOBILE_NAV_ITEMS = [NAV_ITEMS[0], NAV_ITEMS[1], NAV_ITEMS[2], NAV_ITEMS[3], MORE_ITEM] as const;
+const MOBILE_NAV_ITEMS = [
+  NAV_ITEMS.find((item) => item.href === "/")!,
+  NAV_ITEMS.find((item) => item.href === "/feeding")!,
+  NAV_ITEMS.find((item) => item.href === "/sleep")!,
+  NAV_ITEMS.find((item) => item.href === "/diapers")!,
+  MORE_ITEM,
+] as const;
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
 function isMoreActive(pathname: string) {
-  return [MORE_ITEM.href, "/growth", "/vaccines", SETTINGS_ITEM.href].some((href) => isActive(pathname, href));
+  return [MORE_ITEM.href, "/food", "/growth", "/vaccines", SETTINGS_ITEM.href].some((href) => isActive(pathname, href));
 }
 
 export function AppShell({ baby, children }: { baby: Baby; children: React.ReactNode }) {
@@ -55,9 +62,9 @@ export function AppShell({ baby, children }: { baby: Baby; children: React.React
         <nav className="care-nav" aria-label="主要功能">
           {desktopLink(NAV_ITEMS[0])}
           <p className="care-nav-label">日常记录</p>
-          {NAV_ITEMS.slice(1, 4).map(desktopLink)}
+          {NAV_ITEMS.slice(1, 5).map(desktopLink)}
           <p className="care-nav-label">健康档案</p>
-          {NAV_ITEMS.slice(4).map(desktopLink)}
+          {NAV_ITEMS.slice(5).map(desktopLink)}
         </nav>
         <div className="care-sidebar-footer">
           <Link href={SETTINGS_ITEM.href} className={isActive(pathname, SETTINGS_ITEM.href) ? "active" : ""} aria-current={isActive(pathname, SETTINGS_ITEM.href) ? "page" : undefined}><Settings /><span>{SETTINGS_ITEM.label}</span></Link>
