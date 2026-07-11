@@ -97,42 +97,39 @@ jobs:
     runs-on: ubuntu-latest
     environment: BuildImage
     env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || vars.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Docker Hub credentials
-        id: credentials
+      - name: Check publication credentials
         shell: bash
         run: |
-          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Docker Hub credentials are not configured; skipping image publication."
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Docker Hub credentials are not configured."
+            exit 1
+          fi
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::error::Telegram credentials are not configured."
+            exit 1
           fi
 
       - name: Set up QEMU
-        if: steps.credentials.outputs.enabled == 'true'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        if: steps.credentials.outputs.enabled == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
-        if: steps.credentials.outputs.enabled == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Extract image metadata
-        if: steps.credentials.outputs.enabled == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -144,7 +141,6 @@ jobs:
             type=sha
 
       - name: Build and push image
-        if: steps.credentials.outputs.enabled == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -157,7 +153,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Notify Telegram
-        if: steps.credentials.outputs.enabled == 'true' && success()
+        if: success()
         shell: bash
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
