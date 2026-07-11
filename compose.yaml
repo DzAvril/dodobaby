@@ -1,8 +1,6 @@
 services:
   app:
-    build:
-      context: .
-    image: ${DODOBABY_IMAGE:-dodobaby-food-diary:latest}
+    image: ${DODOBABY_IMAGE:-dz1874/dodobaby:latest}
     restart: unless-stopped
     env_file:
       - .env
