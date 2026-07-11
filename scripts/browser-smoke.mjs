@@ -73,8 +73,9 @@ try {
     body: JSON.stringify({ error: "模拟加载失败" }),
   }));
   await page.reload({ waitUntil: "networkidle" });
-  await page.getByRole("alert").waitFor();
-  assert.match(await page.getByRole("alert").textContent(), /模拟加载失败/);
+  const errorAlert = page.locator('.module-error[role="alert"]');
+  await errorAlert.waitFor();
+  assert.match(await errorAlert.textContent(), /模拟加载失败/);
   await desktop.close();
 
   const mobile = await authenticatedContext(browser, { width: 390, height: 844 });
