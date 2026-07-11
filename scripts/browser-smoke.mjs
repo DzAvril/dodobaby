@@ -34,7 +34,7 @@ try {
   await page.getByRole("heading", { name: /喂养记录/ }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
 
-  const dateInput = page.getByLabel("查看日期");
+  const dateInput = page.locator('input[aria-label="查看日期"]');
   const today = await dateInput.inputValue();
   await page.getByRole("button", { name: "前一天" }).click();
   await page.waitForFunction((value) => document.querySelector('input[aria-label="查看日期"]')?.value !== value, today);
