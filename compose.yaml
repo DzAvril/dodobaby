@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: .
-    image: dodobaby-food-diary:latest
+    image: ${DODOBABY_IMAGE:-dodobaby-food-diary:latest}
     restart: unless-stopped
     env_file:
       - .env
