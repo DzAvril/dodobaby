@@ -89,6 +89,107 @@ try {
   const errorAlert = page.locator('.module-error[role="alert"]');
   await errorAlert.waitFor();
   assert.match(await errorAlert.textContent(), /模拟加载失败/);
+  assert.equal(await page.locator(".feeding-summary-grid, .feeding-timeline-card, .feeding-state-card").count(), 0);
+  await page.unroute("**/api/feedings?*");
+  await page.getByRole("button", { name: "重新加载" }).click();
+  await page.locator(".feeding-summary-grid").waitFor();
+  assert.equal(await errorAlert.count(), 0);
+
+  await page.route("**/api/feedings?*", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: "模拟日期加载失败" }),
+  }));
+  const previousDate = shiftDate(today, -1);
+  await page.getByRole("button", { name: "前一天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看日期"]')?.value === value, previousDate);
+  await errorAlert.waitFor();
+  assert.match(await errorAlert.textContent(), /模拟日期加载失败/);
+  assert.equal(await page.locator(".feeding-summary-grid, .feeding-timeline-card, .feeding-state-card").count(), 0);
+  await page.unroute("**/api/feedings?*");
+  await page.getByRole("button", { name: "重新加载" }).click();
+  await page.locator(".feeding-record-card").filter({ hasText: "配方奶 30 ml" }).waitFor();
+  assert.equal(await dateInput.inputValue(), previousDate);
+
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看日期"]')?.value === value, today);
+  await page.locator(".feeding-record-card").filter({ hasText: "混合瓶喂" }).waitFor();
+
+  let releasePreviousRequest;
+  let markPreviousRequestStarted;
+  let markPreviousRequestFinished;
+  const previousRequestGate = new Promise((resolve) => { releasePreviousRequest = resolve; });
+  const previousRequestStarted = new Promise((resolve) => { markPreviousRequestStarted = resolve; });
+  const previousRequestFinished = new Promise((resolve) => { markPreviousRequestFinished = resolve; });
+  await page.route("**/api/feedings?*", async (route) => {
+    const requestDate = new URL(route.request().url()).searchParams.get("date");
+    if (requestDate !== previousDate) {
+      await route.continue();
+      return;
+    }
+    markPreviousRequestStarted();
+    await previousRequestGate;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+    markPreviousRequestFinished();
+  });
+  await page.getByRole("button", { name: "前一天" }).click();
+  await previousRequestStarted;
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看日期"]')?.value === value, today);
+  await page.locator(".feeding-record-card").filter({ hasText: "混合瓶喂" }).waitFor();
+  releasePreviousRequest();
+  await previousRequestFinished;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await dateInput.inputValue(), today);
+  assert.equal(await page.locator(".feeding-record-card").filter({ hasText: "混合瓶喂" }).count(), 1);
+  await page.unroute("**/api/feedings?*");
+
+  await page.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /生长记录/ }).waitFor();
+  await page.route("**/api/growth", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: "模拟生长加载失败" }),
+  }));
+  await page.reload({ waitUntil: "networkidle" });
+  const growthError = page.locator('.module-error[role="alert"]');
+  await growthError.waitFor();
+  assert.match(await growthError.textContent(), /模拟生长加载失败/);
+  assert.equal(await page.locator(".growth-summary-grid, .growth-chart-card, .growth-history-card, .growth-state-card").count(), 0);
+  await page.unroute("**/api/growth");
+  await page.getByRole("button", { name: "重新加载" }).click();
+  await page.locator(".growth-state-card.empty").waitFor();
+  assert.match(await page.locator(".growth-state-card.empty").textContent(), /记录第一次测量/);
+  assert.equal(await growthError.count(), 0);
+
+  await page.getByRole("button", { name: "添加测量" }).click();
+  const growthDialog = page.getByRole("dialog", { name: "添加测量" });
+  await growthDialog.locator('input[type="number"]').first().fill("7.3");
+  await growthDialog.getByRole("button", { name: "添加记录" }).click();
+  await growthDialog.waitFor({ state: "hidden" });
+  const growthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.3 kg" });
+  await growthRecord.waitFor();
+
+  await page.route("**/api/growth/*", (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ error: "模拟生长删除失败" }),
+    });
+  });
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await growthRecord.getByRole("button", { name: "删除" }).click();
+  await growthError.waitFor();
+  assert.match(await growthError.textContent(), /模拟生长删除失败/);
+  assert.equal(await growthRecord.count(), 1);
+  assert.equal(await growthRecord.getByRole("button", { name: "删除" }).isEnabled(), true);
+
+  await page.unroute("**/api/growth/*");
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await growthRecord.getByRole("button", { name: "删除" }).click();
+  await page.locator(".growth-state-card.empty").waitFor();
   await desktop.close();
 
   const vaccinationDesktop = await authenticatedContext(browser, { width: 1440, height: 900 });
@@ -224,4 +325,4 @@ try {
   await browser.close();
 }
 
-console.log("Browser smoke passed: feeding and vaccination CRUD, failure states, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: feeding and vaccination CRUD, tracker retries and request races, responsive layout, touch targets, and focus");

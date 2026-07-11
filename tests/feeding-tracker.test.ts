@@ -9,12 +9,16 @@ const baby = { id: "baby-1", name: "DoDo", birthDate: "2026-01-01", timezone: "A
 
 test("喂养模块提供独立摘要、日期切换、时间线和编辑面板", () => {
   const html = renderToStaticMarkup(createElement(FeedingTracker, { baby }));
+  const source = readFileSync(new URL("../components/FeedingTracker.tsx", import.meta.url), "utf8");
 
   assert.match(html, /DoDo的喂养记录/);
-  assert.match(html, /最近一次/);
-  assert.match(html, /今日亲喂/);
-  assert.match(html, /今日瓶喂/);
-  assert.match(html, /时间线/);
+  assert.match(html, /正在整理今日喂养/);
+  assert.doesNotMatch(html, /feeding-summary-grid/);
+  assert.doesNotMatch(html, /今天还没有喂养记录/);
+  assert.match(source, /最近一次/);
+  assert.match(source, /\{dayWord\}亲喂/);
+  assert.match(source, /\{dayWord\}瓶喂/);
+  assert.match(source, /时间线/);
   assert.match(html, /aria-label="前一天"/);
   assert.match(html, /aria-label="后一天"/);
   assert.match(html, /aria-labelledby="feeding-dialog-title"/);

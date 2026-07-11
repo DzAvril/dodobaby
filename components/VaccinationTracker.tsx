@@ -300,9 +300,9 @@ export function VaccinationTracker({ baby }: { baby: Baby }) {
       <aside className="vaccination-disclaimer" role="note"><CircleAlert /><p>仅保存家庭自行录入的接种计划与接种事实，不提供接种建议；请以接种单位和官方接种记录为准</p></aside>
       {error && <div className="module-error module-error-with-action" role="alert"><span>{error}</span>{initialFailure && <button type="button" className="secondary-button" onClick={loadRecords}>重新加载</button>}</div>}
 
-      {firstLoad && <section className="vaccination-state-card" aria-live="polite"><CalendarClock /><strong>正在整理疫苗记录</strong><span>计划与实际接种事实会分别归入对应区域。</span></section>}
+      {firstLoad && <section className="module-state-card vaccination-state-card" aria-live="polite"><CalendarClock /><strong>正在整理疫苗记录</strong><span>计划与实际接种事实会分别归入对应区域。</span></section>}
 
-      {empty && <section className="vaccination-state-card onboarding"><Syringe /><strong>从家庭已有记录开始</strong><span>可以添加下一次计划，也可以从官方接种记录中补录已完成的接种事实；这里不会自动生成接种日程。</span><div className="vaccination-state-actions"><button type="button" className="primary-button" onClick={() => openEditor(null)}><Plus />添加计划</button><button type="button" className="secondary-button" onClick={() => openEditor(null, true)}><History />补录已接种</button></div></section>}
+      {empty && <section className="module-state-card vaccination-state-card onboarding"><Syringe /><strong>从家庭已有记录开始</strong><span>可以添加下一次计划，也可以从官方接种记录中补录已完成的接种事实；这里不会自动生成接种日程。</span><div className="module-state-actions"><button type="button" className="primary-button" onClick={() => openEditor(null)}><Plus />添加计划</button><button type="button" className="secondary-button" onClick={() => openEditor(null, true)}><History />补录已接种</button></div></section>}
 
       {!firstLoad && !empty && !initialFailure && <>
       <section className="vaccination-summary-grid" aria-label="疫苗记录摘要">

@@ -6,6 +6,7 @@ import type { Baby as BabyProfile } from "@/components/DiaryApp";
 import { jsonRequest } from "@/lib/client-api";
 import { addDays, todayInTimezone } from "@/lib/dates";
 import { currentMinuteInTimezone } from "@/lib/feeding-validation";
+import { trackerViewState } from "@/lib/tracker-view-state";
 
 export type FeedingRecord = {
   id: string;
@@ -183,27 +184,40 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const selectedDateRef = useRef(today);
+  const requestSequenceRef = useRef(0);
 
   const loadDay = useCallback(async (date: string) => {
+    if (date !== selectedDateRef.current) return;
+    const requestId = ++requestSequenceRef.current;
     setLoading(true);
     setError("");
     try {
       const data = await jsonRequest<FeedingDayResponse>(`/api/feedings?date=${date}`);
+      if (requestId !== requestSequenceRef.current || date !== selectedDateRef.current) return;
       setDayData(data);
     } catch (caught) {
+      if (requestId !== requestSequenceRef.current || date !== selectedDateRef.current) return;
       setError(caught instanceof Error ? caught.message : "加载失败，请稍后重试");
     } finally {
-      setLoading(false);
+      if (requestId === requestSequenceRef.current && date === selectedDateRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let active = true;
-    jsonRequest<FeedingDayResponse>(`/api/feedings?date=${selectedDate}`)
-      .then((data) => { if (active) setDayData(data); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "加载失败，请稍后重试"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const date = selectedDate;
+    const requestId = ++requestSequenceRef.current;
+    jsonRequest<FeedingDayResponse>(`/api/feedings?date=${date}`)
+      .then((data) => {
+        if (requestId === requestSequenceRef.current && date === selectedDateRef.current) setDayData(data);
+      })
+      .catch((caught) => {
+        if (requestId === requestSequenceRef.current && date === selectedDateRef.current) setError(caught instanceof Error ? caught.message : "加载失败，请稍后重试");
+      })
+      .finally(() => {
+        if (requestId === requestSequenceRef.current && date === selectedDateRef.current) setLoading(false);
+      });
+    return () => { requestSequenceRef.current += 1; };
   }, [selectedDate]);
 
   useEffect(() => {
@@ -217,12 +231,16 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
     if (dayData?.date !== selectedDate) return [];
     return [...dayData.records].sort((a, b) => a.startedTime.localeCompare(b.startedTime));
   }, [dayData, selectedDate]);
-  const summary = dayData?.date === selectedDate ? dayData.summary : EMPTY_SUMMARY;
-  const latest = dayData?.date === selectedDate ? dayData.latest : null;
+  const hasSelectedDayData = dayData?.date === selectedDate;
+  const summary = hasSelectedDayData ? dayData.summary : EMPTY_SUMMARY;
+  const latest = hasSelectedDayData ? dayData.latest : null;
   const dayWord = selectedDate === today ? "今日" : "当日";
+  const viewState = trackerViewState({ loading, error: Boolean(error), hasCurrentData: hasSelectedDayData, itemCount: records.length });
 
   function changeDate(date: string) {
     setEditor(undefined);
+    selectedDateRef.current = date;
+    requestSequenceRef.current += 1;
     setLoading(true);
     setError("");
     setSelectedDate(date);
@@ -230,12 +248,8 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
 
   async function handleSaved(savedDate: string) {
     setEditor(undefined);
-    if (savedDate === selectedDate) await loadDay(selectedDate);
-    else {
-      setLoading(true);
-      setError("");
-      setSelectedDate(savedDate);
-    }
+    if (savedDate === selectedDateRef.current) await loadDay(savedDate);
+    else changeDate(savedDate);
   }
 
   async function removeRecord(record: FeedingRecord) {
@@ -244,7 +258,7 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
     setError("");
     try {
       await jsonRequest(`/api/feedings/${record.id}`, { method: "DELETE" });
-      await loadDay(selectedDate);
+      if (selectedDateRef.current === record.feedingDate) await loadDay(record.feedingDate);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "删除失败，请稍后重试");
     } finally {
@@ -263,8 +277,13 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
         {selectedDate !== today && <button type="button" className="feeding-today-button" onClick={() => changeDate(today)}>回到今天</button>}
       </section>
 
-      {error && <p className="module-error" role="alert">{error}</p>}
+      {error && <div className="module-error module-error-with-action" role="alert"><span>{error}</span><button type="button" className="secondary-button" onClick={() => loadDay(selectedDate)}>重新加载</button></div>}
 
+      {viewState === "loading" && <section className="module-state-card feeding-state-card" aria-live="polite"><Milk /><strong>正在整理{dayWord}喂养</strong><span>亲喂时长、母乳和配方奶会汇总在同一天内。</span></section>}
+
+      {viewState === "empty" && <section className="module-state-card feeding-state-card empty"><Milk /><strong>{selectedDate === today ? "今天还没有喂养记录" : "这一天没有喂养记录"}</strong><span>{latest ? `最近一次记录是 ${latest.feedingDate} ${latest.startedTime}，${feedingDescription(latest)}。` : "从一次亲喂或瓶喂开始，也可以在同一会话中记录混合喂养。"}</span><div className="module-state-actions"><button type="button" className="primary-button" onClick={() => setEditor(null)}><Plus />添加第一次喂养</button></div></section>}
+
+      {viewState === "content" && <>
       <section className="feeding-summary-grid" aria-label={`${dayWord}喂养摘要`}>
         <article className="latest"><div className="feeding-summary-icon"><Clock3 /></div><div><span>最近一次</span><strong>{latest ? `${latest.startedTime}` : "暂无记录"}</strong><small>{latest ? `${latest.feedingDate === selectedDate ? dayWord : latest.feedingDate} · ${feedingDescription(latest)}` : "添加后会显示最近记录"}</small></div></article>
         <article className="direct"><div className="feeding-summary-icon"><Baby /></div><div><span>{dayWord}亲喂</span><strong>{summary.directMinutes ? `${summary.directMinutes} 分钟` : "暂无"}</strong><small>{summary.sessionCount ? `${summary.sessionCount} 次喂养会话` : "还没有喂养记录"}</small></div></article>
@@ -272,15 +291,16 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
       </section>
 
       <section className="feeding-timeline-card">
-        <div className="feeding-card-heading"><div><p className="eyebrow">DAY TIMELINE</p><h2>{formatDay(selectedDate)}时间线</h2><p>{loading ? "正在加载记录…" : records.length ? `共 ${records.length} 次喂养会话` : "按实际发生时间记录每次喂养"}</p></div></div>
-        {loading ? <div className="feeding-timeline-empty">正在加载记录…</div> : records.length ? <div className="feeding-timeline">{records.map((record) => <article key={record.id}>
+        <div className="feeding-card-heading"><div><p className="eyebrow">DAY TIMELINE</p><h2>{formatDay(selectedDate)}时间线</h2><p>{loading ? "正在更新记录…" : `共 ${records.length} 次喂养会话`}</p></div></div>
+        <div className="feeding-timeline">{records.map((record) => <article key={record.id}>
           <div className="feeding-time"><time>{record.startedTime}</time><span aria-hidden="true" /></div>
           <div className="feeding-record-card"><header><div><strong>{feedingDescription(record)}</strong><small>一次喂养会话</small></div><div className="feeding-record-actions"><button type="button" onClick={() => setEditor(record)}><Pencil />编辑</button><button type="button" className="danger" disabled={deletingId === record.id} onClick={() => removeRecord(record)}><Trash2 />{deletingId === record.id ? "删除中…" : "删除"}</button></div></header>
             <div className="feeding-record-values">{record.leftDurationMinutes != null && <span className="direct">左侧 {record.leftDurationMinutes} 分钟</span>}{record.rightDurationMinutes != null && <span className="direct">右侧 {record.rightDurationMinutes} 分钟</span>}{record.expressedMilkMl != null && <span className="bottle">母乳 {record.expressedMilkMl} ml</span>}{record.formulaMl != null && <span className="formula">配方奶 {record.formulaMl} ml</span>}</div>
             {record.note && <p>{record.note}</p>}
           </div>
-        </article>)}</div> : <div className="feeding-timeline-empty"><Milk /><strong>{selectedDate === today ? "今天还没有喂养记录" : "这一天没有喂养记录"}</strong><span>从一次亲喂或瓶喂开始记录，也可以在同一会话中混合填写。</span><button className="secondary-button" onClick={() => setEditor(null)}><Plus />添加第一次喂养</button></div>}
+        </article>)}</div>
       </section>
+      </>}
 
       <dialog ref={dialogRef} className="feeding-dialog" aria-labelledby="feeding-dialog-title" onClose={() => setEditor(undefined)}>
         <div className="feeding-dialog-header"><div><p className="eyebrow">FEEDING SESSION</p><h2 id="feeding-dialog-title">{editor ? "编辑喂养" : "添加喂养"}</h2></div><button type="button" className="icon-button" aria-label="关闭" onClick={() => setEditor(undefined)}><X /></button></div>

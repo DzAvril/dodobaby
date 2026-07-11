@@ -6,6 +6,7 @@ import type { Baby } from "@/components/DiaryApp";
 import { jsonRequest } from "@/lib/client-api";
 import { todayInTimezone } from "@/lib/dates";
 import { growthChartGeometry, growthSeries, type GrowthMetric } from "@/lib/growth-chart";
+import { trackerViewState } from "@/lib/tracker-view-state";
 
 export type GrowthRecord = {
   id: string;
@@ -115,29 +116,44 @@ export function GrowthTracker({ baby }: { baby: Baby }) {
   const [metric, setMetric] = useState<GrowthMetric>("weightKg");
   const [editor, setEditor] = useState<GrowthRecord | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const requestSequenceRef = useRef(0);
 
   const loadRecords = useCallback(async () => {
+    const requestId = ++requestSequenceRef.current;
     setLoading(true);
     setError("");
     try {
       const data = await jsonRequest<{ records: GrowthRecord[] }>("/api/growth");
+      if (requestId !== requestSequenceRef.current) return;
       setRecords(data.records);
+      setHasLoaded(true);
     } catch (caught) {
+      if (requestId !== requestSequenceRef.current) return;
       setError(caught instanceof Error ? caught.message : "加载失败");
     } finally {
-      setLoading(false);
+      if (requestId === requestSequenceRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let active = true;
+    const requestId = ++requestSequenceRef.current;
     jsonRequest<{ records: GrowthRecord[] }>("/api/growth")
-      .then((data) => { if (active) setRecords(data.records); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "加载失败"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .then((data) => {
+        if (requestId !== requestSequenceRef.current) return;
+        setRecords(data.records);
+        setHasLoaded(true);
+      })
+      .catch((caught) => {
+        if (requestId === requestSequenceRef.current) setError(caught instanceof Error ? caught.message : "加载失败");
+      })
+      .finally(() => {
+        if (requestId === requestSequenceRef.current) setLoading(false);
+      });
+    return () => { requestSequenceRef.current += 1; };
   }, []);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -147,18 +163,32 @@ export function GrowthTracker({ baby }: { baby: Baby }) {
   }, [editor]);
 
   const summaries = useMemo(() => METRICS.map((item) => ({ ...item, ...latestMetric(records, item.key) })), [records]);
+  const viewState = trackerViewState({ loading, error: Boolean(error), hasCurrentData: hasLoaded, itemCount: records.length });
 
   async function removeRecord(record: GrowthRecord) {
     if (!window.confirm(`确定删除 ${record.measuredDate} 的生长记录吗？`)) return;
-    await jsonRequest(`/api/growth/${record.id}`, { method: "DELETE" });
-    await loadRecords();
+    setDeletingId(record.id);
+    setError("");
+    try {
+      await jsonRequest(`/api/growth/${record.id}`, { method: "DELETE" });
+      await loadRecords();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "删除失败，请稍后重试");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
     <div className="module-page growth-page">
       <header className="module-heading"><div><p className="eyebrow">GROWTH TRACKER</p><h1>{baby.name}的生长记录</h1><p>把每次测量留在独立的时间线上，直观看到自己的变化趋势。</p></div><button className="primary-button module-primary-action" onClick={() => setEditor(null)}><Plus />添加测量</button></header>
-      {error && <p className="module-error" role="alert">{error}</p>}
+      {error && <div className="module-error module-error-with-action" role="alert"><span>{error}</span><button type="button" className="secondary-button" onClick={loadRecords}>重新加载</button></div>}
 
+      {viewState === "loading" && <section className="module-state-card growth-state-card" aria-live="polite"><ChartNoAxesCombined /><strong>正在整理生长记录</strong><span>体重、身高和头围会分别归入自己的趋势。</span></section>}
+
+      {viewState === "empty" && <section className="module-state-card growth-state-card empty"><ChartNoAxesCombined /><strong>记录第一次测量</strong><span>从最近一次体检或家庭测量开始，体重、身高和头围会分别展示，不混用坐标轴。</span><div className="module-state-actions"><button type="button" className="primary-button" onClick={() => setEditor(null)}><Plus />添加第一次测量</button></div></section>}
+
+      {viewState === "content" && <>
       <section className="growth-summary-grid" aria-label="最近一次测量">
         {summaries.map(({ key, label, unit, icon: Icon, latest, delta }) => <article key={key}><div className={`metric-icon ${key}`}><Icon /></div><div><span>{label}</span><strong>{latest ? `${formatNumber(latest.value)} ${unit}` : "暂无"}</strong><small>{latest ? `${latest.date}${delta == null ? "" : ` · 较上次 ${delta > 0 ? "+" : ""}${formatNumber(delta)}${unit}`}` : "添加第一次测量"}</small></div></article>)}
       </section>
@@ -169,9 +199,10 @@ export function GrowthTracker({ baby }: { baby: Baby }) {
       </section>
 
       <section className="growth-history-card">
-        <div className="growth-card-heading"><div><h2>测量历史</h2><p>{records.length ? `共 ${records.length} 次记录` : "按日期保存每一次变化"}</p></div></div>
-        {loading ? <div className="growth-history-empty">正在加载记录…</div> : records.length ? <div className="growth-history-list">{[...records].reverse().map((record) => <article key={record.id}><time>{record.measuredDate}</time><div className="growth-values">{record.weightKg != null && <span><b>{formatNumber(record.weightKg)}</b> kg 体重</span>}{record.heightCm != null && <span><b>{formatNumber(record.heightCm)}</b> cm 身高</span>}{record.headCircumferenceCm != null && <span><b>{formatNumber(record.headCircumferenceCm)}</b> cm 头围</span>}</div>{record.note && <p>{record.note}</p>}<div className="growth-record-actions"><button type="button" onClick={() => setEditor(record)}><Pencil />编辑</button><button type="button" className="danger" onClick={() => removeRecord(record)}><Trash2 />删除</button></div></article>)}</div> : <div className="growth-history-empty"><ChartNoAxesCombined /><strong>还没有生长记录</strong><span>从最近一次体检或家庭测量开始记录吧。</span><button className="secondary-button" onClick={() => setEditor(null)}><Plus />添加第一次测量</button></div>}
+        <div className="growth-card-heading"><div><h2>测量历史</h2><p>{loading ? "正在更新记录…" : `共 ${records.length} 次记录`}</p></div></div>
+        <div className="growth-history-list">{[...records].reverse().map((record) => <article key={record.id}><time>{record.measuredDate}</time><div className="growth-values">{record.weightKg != null && <span><b>{formatNumber(record.weightKg)}</b> kg 体重</span>}{record.heightCm != null && <span><b>{formatNumber(record.heightCm)}</b> cm 身高</span>}{record.headCircumferenceCm != null && <span><b>{formatNumber(record.headCircumferenceCm)}</b> cm 头围</span>}</div>{record.note && <p>{record.note}</p>}<div className="growth-record-actions"><button type="button" onClick={() => setEditor(record)}><Pencil />编辑</button><button type="button" className="danger" disabled={deletingId === record.id} onClick={() => removeRecord(record)}><Trash2 />{deletingId === record.id ? "删除中…" : "删除"}</button></div></article>)}</div>
       </section>
+      </>}
 
       <dialog ref={dialogRef} className="growth-dialog" aria-labelledby="growth-dialog-title" onClose={() => setEditor(undefined)}>
         <div className="growth-dialog-header"><div><p className="eyebrow">MEASUREMENT</p><h2 id="growth-dialog-title">{editor ? "编辑测量" : "添加测量"}</h2></div><button className="icon-button" aria-label="关闭" onClick={() => setEditor(undefined)}><X /></button></div>
