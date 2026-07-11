@@ -23,6 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
 import { formatAge, getMonthGrid } from "@/lib/dates";
 
 type Baby = { id: string; name: string; birthDate: string; timezone: string };
@@ -366,7 +367,7 @@ export function DiaryApp() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand"><div className="brand-mark small"><span>辅</span></div><div><p>宝宝辅食日记</p><span>{baby.name} · {formatAge(baby.birthDate, today)}</span></div></div>
+        <div className="brand"><BrandMark small /><div><p>宝宝辅食日记</p><span>{baby.name} · {formatAge(baby.birthDate, today)}</span></div></div>
         <nav aria-label="应用操作">
           <button className="header-button" onClick={() => setSettingsOpen(true)}><Settings size={18} /><span>宝宝资料</span></button>
           <button className="header-button" onClick={logout}><LogOut size={18} /><span>退出</span></button>

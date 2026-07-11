@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { BrandMark } from "@/components/BrandMark";
 import { LoginForm } from "@/components/LoginForm";
 import { isAuthenticated } from "@/lib/auth";
 
@@ -11,7 +12,7 @@ export default async function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-card">
-        <div className="brand-mark" aria-hidden="true"><span>辅</span></div>
+        <BrandMark />
         <p className="eyebrow">FAMILY FOOD DIARY</p>
         <h1>宝宝辅食日记</h1>
         <p className="login-intro">把每天的小菜单和小反应，认真留在一处。</p>
