@@ -261,7 +261,7 @@ function PasswordForm() {
   );
 }
 
-function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: string; meal: Meal | null; foods: FoodCatalogItem[]; onSaved: () => void; onCancel: () => void }) {
+export function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: string; meal: Meal | null; foods: FoodCatalogItem[]; onSaved: () => void; onCancel: () => void }) {
   const [mealType, setMealType] = useState(meal?.mealType ?? "lunch");
   const [customMealType, setCustomMealType] = useState(meal?.customMealType ?? "");
   const [plannedTime, setPlannedTime] = useState(meal?.plannedTime ?? "11:30");
@@ -337,7 +337,14 @@ function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: string; me
         <div className="ingredient-list">
           {items.map((item, index) => (
             <div className="ingredient-row" key={index}>
-              <label className="ingredient-name"><span>食材 {index + 1}</span><input list="food-catalog-options" value={item.name} onChange={(event) => updateItemName(index, event.target.value)} placeholder={foods.length ? "输入或从辅食库选择" : "例如：胡萝卜泥"} required /></label>
+              <div className="ingredient-name">
+                <label htmlFor={`food-catalog-${index}`}>食材 {index + 1}</label>
+                <select id={`food-catalog-${index}`} value={foods.some((food) => food.name === item.name) ? item.name : ""} onChange={(event) => updateItemName(index, event.target.value)} disabled={foods.length === 0}>
+                  <option value="">{foods.length ? "从辅食库选择" : "辅食库暂无内容"}</option>
+                  {foods.map((food) => <option key={food.id} value={food.name}>{food.name}{food.defaultUnit ? `（${food.defaultUnit}）` : ""}</option>)}
+                </select>
+                <input value={item.name} onChange={(event) => updateItemName(index, event.target.value)} aria-label={`手动输入食材 ${index + 1}`} placeholder={foods.length ? "也可手动输入" : "例如：胡萝卜泥"} required />
+              </div>
               <label className="ingredient-amount"><span>数量</span><input type="number" min="0" step="0.1" value={item.amount ?? ""} onChange={(event) => updateItem(index, { amount: event.target.value === "" ? null : Number(event.target.value) })} placeholder="10" /></label>
               <label className="ingredient-unit"><span>单位</span><input list="food-units" value={item.unit ?? ""} onChange={(event) => updateItem(index, { unit: event.target.value })} placeholder="g" /></label>
               <label className="ingredient-preparation"><span>做法</span><input value={item.preparation ?? ""} onChange={(event) => updateItem(index, { preparation: event.target.value })} placeholder="蒸熟打泥（可选）" /></label>
@@ -346,7 +353,6 @@ function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: string; me
             </div>
           ))}
         </div>
-        <datalist id="food-catalog-options">{foods.map((food) => <option key={food.id} value={food.name}>{food.defaultUnit || ""}</option>)}</datalist>
         <datalist id="food-units">{UNITS.map((unit) => <option key={unit} value={unit} />)}</datalist>
         <button className="text-button" type="button" onClick={() => setItems((current) => [...current, { name: "", amount: null, unit: "g", preparation: "", isFirstTry: false }])}><Plus size={16} />添加食材</button>
         <label><span>计划备注</span><textarea value={planNote} onChange={(event) => setPlanNote(event.target.value)} maxLength={500} rows={2} placeholder="例如：米粉先用温水冲开" /></label>
