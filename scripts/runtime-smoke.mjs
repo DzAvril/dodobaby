@@ -61,6 +61,13 @@ const nextDate = new Date(`${date}T00:00:00Z`);
 nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 const tomorrow = nextDate.toISOString().slice(0, 10);
 expectStatus(await request(`/api/feedings?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated feedings");
+expectStatus(await request(`/api/diapers?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated diapers");
+expectStatus(await request("/api/diapers/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated diaper delete");
+expectStatus(await request("/api/diapers/missing-record", {
+  method: "PATCH",
+  headers: { cookie: "", "content-type": "application/json" },
+  body: JSON.stringify({ diaperDate: date, changedTime: time, diaperType: "wet" }),
+}), 401, "unauthenticated diaper update");
 expectStatus(await request("/api/vaccines", { headers: { cookie: "" } }), 401, "unauthenticated vaccinations");
 expectStatus(await request("/api/vaccines/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated vaccination delete");
 expectStatus(await request("/api/vaccines/missing-record", {
@@ -73,6 +80,20 @@ expectStatus(await request("/api/feedings", {
   headers: { "content-type": "application/json", origin: "https://evil.example" },
   body: JSON.stringify({ feedingDate: date, startedTime: time, formulaMl: 60 }),
 }), 403, "cross-origin feeding write");
+expectStatus(await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ diaperDate: date, changedTime: time, diaperType: "wet" }),
+}), 403, "cross-origin diaper write");
+expectStatus(await request("/api/diapers/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ diaperDate: date, changedTime: time, diaperType: "wet" }),
+}), 403, "cross-origin diaper update");
+expectStatus(await request("/api/diapers/missing-record", {
+  method: "DELETE",
+  headers: { origin: "https://evil.example" },
+}), 403, "cross-origin diaper delete");
 expectStatus(await request("/api/vaccines", {
   method: "POST",
   headers: { "content-type": "application/json", origin: "https://evil.example" },
@@ -119,6 +140,135 @@ const vaccinationBirthDateConflict = await request("/api/baby", {
 expectStatus(vaccinationBirthDateConflict, 400, "protect earliest vaccination date");
 assert.match(vaccinationBirthDateConflict.body.error, /已有疫苗记录/);
 expectStatus(await request(`/api/vaccines/${earlierVaccination.body.record.id}`, { method: "DELETE" }), 200, "delete earlier vaccination plan");
+
+const earlierDiaper = await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ diaperDate: yesterday, changedTime: "08:05", diaperType: "wet" }),
+});
+expectStatus(earlierDiaper, 201, "create earlier diaper record");
+const diaperBirthDateConflict = await request("/api/baby", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "Smoke Baby", birthDate: date, timezone: "Asia/Shanghai" }),
+});
+expectStatus(diaperBirthDateConflict, 400, "protect earliest diaper date");
+assert.match(diaperBirthDateConflict.body.error, /已有尿布记录/);
+expectStatus(await request(`/api/diapers/${earlierDiaper.body.record.id}`, { method: "DELETE" }), 200, "delete earlier diaper record");
+
+expectStatus(await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ diaperDate: date, changedTime: time, diaperType: "unknown" }),
+}), 400, "reject unknown diaper type");
+expectStatus(await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ diaperDate: tomorrow, changedTime: "08:00", diaperType: "wet" }),
+}), 400, "reject future diaper date");
+if (time !== "23:59") {
+  const [hour, minute] = time.split(":").map(Number);
+  const futureMinute = `${String(hour + Math.floor((minute + 1) / 60)).padStart(2, "0")}:${String((minute + 1) % 60).padStart(2, "0")}`;
+  expectStatus(await request("/api/diapers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ diaperDate: date, changedTime: futureMinute, diaperType: "wet" }),
+  }), 400, "reject future diaper time");
+}
+
+const wetDiaper = await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    diaperDate: date,
+    changedTime: time,
+    diaperType: "wet",
+    urineAmount: "large",
+    stoolAmount: "small",
+    stoolColor: "yellow",
+    stoolConsistency: "soft",
+    note: "  小便记录  ",
+  }),
+});
+expectStatus(wetDiaper, 201, "create wet diaper");
+assert.equal(wetDiaper.body.record.urineAmount, "large");
+assert.equal(wetDiaper.body.record.stoolAmount, null);
+assert.equal(wetDiaper.body.record.stoolColor, null);
+assert.equal(wetDiaper.body.record.stoolConsistency, null);
+assert.equal(wetDiaper.body.record.note, "小便记录");
+
+const bothDiaper = await request("/api/diapers", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    diaperDate: date,
+    changedTime: time,
+    diaperType: "both",
+    urineAmount: "medium",
+    stoolAmount: "small",
+    stoolColor: "yellow",
+    stoolConsistency: "soft",
+    skinObservation: "red",
+    note: "两者记录",
+  }),
+});
+expectStatus(bothDiaper, 201, "create mixed diaper");
+
+let diaperDay = await request(`/api/diapers?date=${date}`);
+expectStatus(diaperDay, 200, "load diaper day");
+assert.equal(diaperDay.body.records.length, 2);
+assert.deepEqual(diaperDay.body.summary, {
+  totalCount: 2,
+  wetCount: 2,
+  dirtyCount: 1,
+  skinObservedCount: 1,
+  skinConcernCount: 1,
+});
+
+const changedToWet = await request(`/api/diapers/${bothDiaper.body.record.id}`, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    diaperDate: date,
+    changedTime: time,
+    diaperType: "wet",
+    urineAmount: "small",
+    stoolAmount: "large",
+    stoolColor: "green",
+    stoolConsistency: "watery",
+    skinObservation: null,
+  }),
+});
+expectStatus(changedToWet, 200, "change mixed diaper to wet");
+assert.equal(changedToWet.body.record.stoolAmount, null);
+assert.equal(changedToWet.body.record.stoolColor, null);
+assert.equal(changedToWet.body.record.stoolConsistency, null);
+
+expectStatus(await request(`/api/diapers/${bothDiaper.body.record.id}`, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    diaperDate: date,
+    changedTime: time,
+    diaperType: "both",
+    urineAmount: "medium",
+    stoolAmount: "small",
+    stoolColor: "yellow",
+    stoolConsistency: "soft",
+    skinObservation: "clear",
+    note: "留给浏览器测试",
+  }),
+}), 200, "restore mixed diaper");
+expectStatus(await request("/api/diapers/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ diaperDate: date, changedTime: time, diaperType: "wet" }),
+}), 404, "isolate missing diaper");
+expectStatus(await request(`/api/diapers/${wetDiaper.body.record.id}`, { method: "DELETE" }), 200, "delete diaper");
+expectStatus(await request(`/api/diapers/${wetDiaper.body.record.id}`, { method: "DELETE" }), 404, "delete missing diaper");
+diaperDay = await request(`/api/diapers?date=${date}`);
+assert.equal(diaperDay.body.records.length, 1);
+assert.deepEqual(diaperDay.body.summary, { totalCount: 1, wetCount: 1, dirtyCount: 1, skinObservedCount: 1, skinConcernCount: 0 });
 
 expectStatus(await request("/api/feedings", {
   method: "POST",
@@ -275,4 +425,15 @@ expectStatus(await request(`/api/vaccines/${completedVaccination.body.record.id}
 vaccinations = await request("/api/vaccines");
 assert.equal(vaccinations.body.records.length, 0);
 
-console.log("Runtime smoke passed: auth, origin, feeding and vaccination CRUD, timeline protection, and summaries");
+const pdfExport = await fetch(
+  `${baseUrl}/api/exports/month?month=${date.slice(0, 7)}&format=pdf&scope=plan`,
+  { headers: { cookie, origin } },
+);
+if (!pdfExport.ok) throw new Error(`PDF export returned ${pdfExport.status}: ${await pdfExport.text()}`);
+assert.equal(pdfExport.status, 200);
+assert.match(pdfExport.headers.get("content-type") ?? "", /^application\/pdf\b/);
+const pdfBytes = Buffer.from(await pdfExport.arrayBuffer());
+assert.equal(pdfBytes.subarray(0, 5).toString("ascii"), "%PDF-");
+assert.ok(pdfBytes.length > 1_000, `PDF export is unexpectedly small: ${pdfBytes.length} bytes`);
+
+console.log("Runtime smoke passed: auth, origin, diaper, feeding and vaccination CRUD, timeline protection, summaries, and PDF export");

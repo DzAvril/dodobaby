@@ -141,6 +141,26 @@ export const vaccinationRecords = sqliteTable(
   ],
 );
 
+export const diaperRecords = sqliteTable(
+  "diaper_records",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    diaperDate: text("diaper_date").notNull(),
+    changedTime: text("changed_time").notNull(),
+    diaperType: text("diaper_type", { enum: ["wet", "dirty", "both"] }).notNull(),
+    urineAmount: text("urine_amount", { enum: ["small", "medium", "large"] }),
+    stoolAmount: text("stool_amount", { enum: ["small", "medium", "large"] }),
+    stoolColor: text("stool_color", { enum: ["yellow", "green", "brown", "black", "red", "white", "other"] }),
+    stoolConsistency: text("stool_consistency", { enum: ["watery", "loose", "soft", "formed", "hard", "other"] }),
+    skinObservation: text("skin_observation", { enum: ["clear", "red", "broken"] }),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("diaper_records_baby_date_time_idx").on(table.babyId, table.diaperDate, table.changedTime)],
+);
+
 export type Baby = typeof babies.$inferSelect;
 export type MealEntryRow = typeof mealEntries.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
@@ -148,3 +168,4 @@ export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;
 export type GrowthRecord = typeof growthRecords.$inferSelect;
 export type FeedingRecord = typeof feedingRecords.$inferSelect;
 export type VaccinationRecord = typeof vaccinationRecords.$inferSelect;
+export type DiaperRecord = typeof diaperRecords.$inferSelect;

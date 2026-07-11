@@ -190,6 +190,116 @@ try {
   page.once("dialog", (confirmation) => confirmation.accept());
   await growthRecord.getByRole("button", { name: "删除" }).click();
   await page.locator(".growth-state-card.empty").waitFor();
+
+  await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "日常记录" }).waitFor();
+  await page.getByRole("heading", { name: "成长与健康" }).waitFor();
+  assert.equal(await page.locator(".home-focus-card").count(), 5);
+  await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
+
+  await page.goto(`${baseUrl}/diapers`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /尿布记录/ }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  await page.locator(".diaper-summary-grid").waitFor();
+  const diaperDateInput = page.locator('input[aria-label="查看尿布日期"]');
+  const diaperError = page.locator('.module-error[role="alert"]');
+
+  const quickDirty = page.locator(".diaper-quick-actions button.dirty");
+  await quickDirty.click();
+  const diaperDialog = page.getByRole("dialog", { name: "记录大便" });
+  await diaperDialog.waitFor();
+  assert.equal(await diaperDialog.getByRole("button", { name: "大便", exact: true }).getAttribute("aria-pressed"), "true");
+  await diaperDialog.locator(".diaper-form-section.dirty select").nth(0).selectOption("large");
+  await diaperDialog.locator(".diaper-form-section.dirty select").nth(1).selectOption("other");
+  await diaperDialog.locator(".diaper-form-section.dirty select").nth(2).selectOption("other");
+  await diaperDialog.getByLabel("观察到发红").check();
+  const diaperNote = `diaper-browser-${Date.now()}`;
+  await diaperDialog.locator("textarea").fill(diaperNote);
+  await diaperDialog.getByRole("button", { name: "保存记录" }).click();
+  await diaperDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.textContent?.includes("大便"));
+
+  const diaperCard = page.locator(".diaper-record-card").filter({ hasText: diaperNote });
+  await diaperCard.waitFor();
+  assert.match(await diaperCard.textContent(), /大便 多/);
+  assert.deepEqual(await diaperCard.locator(".diaper-record-values span").allTextContents(), ["大便 多", "其他", "其他"]);
+  assert.match(await diaperCard.textContent(), /观察到发红/);
+
+  await diaperCard.getByRole("button", { name: "编辑" }).click();
+  const diaperEditDialog = page.getByRole("dialog", { name: "编辑尿布记录" });
+  await diaperEditDialog.getByRole("button", { name: "小便", exact: true }).click();
+  await diaperEditDialog.locator(".diaper-form-section.wet select").selectOption("small");
+  assert.equal(await diaperEditDialog.locator(".diaper-form-section.dirty").count(), 0);
+  await diaperEditDialog.getByRole("button", { name: "保存修改" }).click();
+  await diaperEditDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction((noteText) => [...document.querySelectorAll(".diaper-record-card")].some((card) => card.textContent?.includes(noteText) && card.textContent?.includes("小便 少") && !card.textContent?.includes("其他")), diaperNote);
+
+  await page.route("**/api/diapers/*", (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ error: "模拟尿布删除失败" }),
+    });
+  });
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await diaperCard.getByRole("button", { name: "删除" }).click();
+  await diaperError.waitFor();
+  assert.match(await diaperError.textContent(), /模拟尿布删除失败/);
+  assert.equal(await diaperCard.count(), 1);
+  assert.equal(await diaperCard.getByRole("button", { name: "删除" }).isEnabled(), true);
+  await page.unroute("**/api/diapers/*");
+
+  let releaseDiaperDelete;
+  let markDiaperDeleteStarted;
+  let markDiaperDeleteFinished;
+  const diaperDeleteGate = new Promise((resolve) => { releaseDiaperDelete = resolve; });
+  const diaperDeleteStarted = new Promise((resolve) => { markDiaperDeleteStarted = resolve; });
+  const diaperDeleteFinished = new Promise((resolve) => { markDiaperDeleteFinished = resolve; });
+  await page.route("**/api/diapers/*", async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    markDiaperDeleteStarted();
+    await diaperDeleteGate;
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ error: "不应污染新日期的删除错误" }),
+    });
+    markDiaperDeleteFinished();
+  });
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await diaperCard.getByRole("button", { name: "删除" }).click();
+  await diaperDeleteStarted;
+  await page.getByRole("button", { name: "前一天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看尿布日期"]')?.value === value, previousDate);
+  releaseDiaperDelete();
+  await diaperDeleteFinished;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await diaperError.count(), 0);
+  await page.unroute("**/api/diapers/*");
+  await page.getByRole("button", { name: "回到今天" }).click();
+  await page.waitForFunction((value) => document.querySelector('input[aria-label="查看尿布日期"]')?.value === value, today);
+  await diaperCard.waitFor();
+  assert.equal(await diaperDateInput.inputValue(), today);
+  assert.equal(await diaperCard.getByRole("button", { name: "删除" }).isEnabled(), true);
+
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await diaperCard.getByRole("button", { name: "删除" }).click();
+  await diaperCard.waitFor({ state: "detached" });
+
+  await page.route("**/api/diapers?*", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: "模拟尿布加载失败" }),
+  }));
+  await page.reload({ waitUntil: "networkidle" });
+  await diaperError.waitFor();
+  assert.match(await diaperError.textContent(), /模拟尿布加载失败/);
+  assert.equal(await page.locator(".diaper-summary-grid, .diaper-timeline-card, .diaper-state-card").count(), 0);
+  await page.unroute("**/api/diapers?*");
+  await page.getByRole("button", { name: "重新加载" }).click();
+  await page.locator(".diaper-record-card").filter({ hasText: "留给浏览器测试" }).waitFor();
+  assert.equal(await diaperError.count(), 0);
   await desktop.close();
 
   const vaccinationDesktop = await authenticatedContext(browser, { width: 1440, height: 900 });
@@ -278,7 +388,7 @@ try {
   const mobilePage = await mobile.newPage();
   await mobilePage.goto(`${baseUrl}/feeding`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
-  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "辅食", "喂养", "生长", "疫苗"]);
+  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "辅食", "喂养", "尿布", "更多"]);
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
   const mobileFeedingTrigger = mobilePage.getByRole("button", { name: "添加喂养" });
@@ -291,7 +401,29 @@ try {
   await mobileFeedingDialog.waitFor({ state: "hidden" });
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加喂养"));
 
+  await mobilePage.goto(`${baseUrl}/diapers`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  const mobileDiaperTrigger = mobilePage.locator(".diaper-quick-actions button.wet");
+  await mobileDiaperTrigger.click();
+  const mobileDiaperDialog = mobilePage.getByRole("dialog", { name: "记录小便" });
+  const diaperBounds = await mobileDiaperDialog.boundingBox();
+  assert.ok(diaperBounds && Math.abs(diaperBounds.y + diaperBounds.height - 844) <= 1, `mobile diaper dialog is not bottom aligned: ${JSON.stringify(diaperBounds)}`);
+  assert.ok(diaperBounds && Math.abs(diaperBounds.width - 390) <= 1, `mobile diaper dialog is not full width: ${JSON.stringify(diaperBounds)}`);
+  const diaperSaveBounds = await mobileDiaperDialog.getByRole("button", { name: "保存记录" }).boundingBox();
+  assert.ok(diaperSaveBounds && diaperSaveBounds.y + diaperSaveBounds.height <= 844, `mobile diaper action is not visible: ${JSON.stringify(diaperSaveBounds)}`);
+  await mobileDiaperDialog.getByRole("button", { name: "关闭" }).click();
+  await mobileDiaperDialog.waitFor({ state: "hidden" });
+  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("小便"));
+
+  await mobilePage.goto(`${baseUrl}/more`, { waitUntil: "networkidle" });
+  await mobilePage.getByRole("heading", { name: "更多功能" }).waitFor();
+  assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、密码与辅食库"]);
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+
   await mobilePage.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   const mobileGrowthTrigger = mobilePage.getByRole("button", { name: "添加测量" });
   await mobileGrowthTrigger.click();
   const mobileGrowthDialog = mobilePage.getByRole("dialog", { name: "添加测量" });
@@ -303,6 +435,7 @@ try {
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加测量"));
 
   await mobilePage.goto(`${baseUrl}/vaccines`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
@@ -319,10 +452,11 @@ try {
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加疫苗记录"));
 
   await mobilePage.goto(`${baseUrl}/settings`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   await mobilePage.getByRole("button", { name: "退出登录" }).waitFor();
   await mobile.close();
 } finally {
   await browser.close();
 }
 
-console.log("Browser smoke passed: feeding and vaccination CRUD, tracker retries and request races, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");

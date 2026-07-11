@@ -102,20 +102,25 @@ test("长疫苗备注默认折叠且仍可展开查看完整内容", () => {
   assert.match(longNote, new RegExp(longText));
 });
 
-test("核心导航为五个隔离模块且首页疫苗接口失败不影响其他模块", () => {
+test("桌面六个模块与手机五项可扩展导航保持隔离", () => {
   const shellSource = readFileSync(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
   const homeSource = readFileSync(new URL("../components/HomeDashboard.tsx", import.meta.url), "utf8");
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   const coreNavSource = shellSource.match(/const NAV_ITEMS = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
 
-  assert.equal((coreNavSource.match(/href:/g) ?? []).length, 5);
+  assert.equal((coreNavSource.match(/href:/g) ?? []).length, 6);
+  assert.match(coreNavSource, /href: "\/diapers"/);
   assert.match(coreNavSource, /href: "\/vaccines"/);
   assert.doesNotMatch(coreNavSource, /href: "\/settings"/);
   assert.match(homeSource, /Promise\.allSettled/);
   assert.match(homeSource, /jsonRequest<\{ records: VaccinationRecord\[\] \}>\("\/api\/vaccines"\)/);
   assert.match(homeSource, /vaccineFailed/);
-  assert.equal((homeSource.match(/className="home-focus-card /g) ?? []).length, 4);
+  assert.match(homeSource, /jsonRequest<DiaperDayResponse>\(`\/api\/diapers\?date=\$\{today\}`\)/);
+  assert.match(homeSource, /diaperFailed/);
+  assert.equal((homeSource.match(/className="home-focus-card /g) ?? []).length, 5);
   assert.doesNotMatch(homeSource, /className="module-card"/);
+  assert.match(shellSource, /const MOBILE_NAV_ITEMS = \[NAV_ITEMS\[0\], NAV_ITEMS\[1\], NAV_ITEMS\[2\], NAV_ITEMS\[3\], MORE_ITEM\]/);
+  assert.match(shellSource, /isMoreActive/);
   assert.match(styles, /grid-template-columns: repeat\(5, 1fr\)/);
   assert.match(styles, /padding-bottom: calc\(24px \+ env\(safe-area-inset-bottom\)\)/);
 });

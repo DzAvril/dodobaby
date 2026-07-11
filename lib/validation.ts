@@ -52,6 +52,32 @@ export const feedingRecordSchema = z
     }
   });
 
+export const diaperRecordSchema = z
+  .object({
+    diaperDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "尿布日期无效"),
+    changedTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "更换时间无效"),
+    diaperType: z.enum(["wet", "dirty", "both"]),
+    urineAmount: z.enum(["small", "medium", "large"]).nullable().optional(),
+    stoolAmount: z.enum(["small", "medium", "large"]).nullable().optional(),
+    stoolColor: z.enum(["yellow", "green", "brown", "black", "red", "white", "other"]).nullable().optional(),
+    stoolConsistency: z.enum(["watery", "loose", "soft", "formed", "hard", "other"]).nullable().optional(),
+    skinObservation: z.enum(["clear", "red", "broken"]).nullable().optional(),
+    note: z.string().trim().max(300, "备注不能超过 300 个字符").nullable().optional(),
+  })
+  .transform((value) => {
+    const hasUrine = value.diaperType === "wet" || value.diaperType === "both";
+    const hasStool = value.diaperType === "dirty" || value.diaperType === "both";
+    return {
+      ...value,
+      urineAmount: hasUrine ? value.urineAmount ?? null : null,
+      stoolAmount: hasStool ? value.stoolAmount ?? null : null,
+      stoolColor: hasStool ? value.stoolColor ?? null : null,
+      stoolConsistency: hasStool ? value.stoolConsistency ?? null : null,
+      skinObservation: value.skinObservation ?? null,
+      note: value.note || null,
+    };
+  });
+
 const optionalVaccinationDateSchema = z
   .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期无效")])
   .nullable()
@@ -145,3 +171,4 @@ export type MealInput = z.infer<typeof mealSchema>;
 export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;
 export type FeedingRecordInput = z.infer<typeof feedingRecordSchema>;
 export type VaccinationRecordInput = z.infer<typeof vaccinationRecordSchema>;
+export type DiaperRecordInput = z.infer<typeof diaperRecordSchema>;
