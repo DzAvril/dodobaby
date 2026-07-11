@@ -1,6 +1,6 @@
-# 宝宝辅食日记
+# 小芽日记
 
-一个适合家庭共同使用的宝宝辅食计划与实际喂养记录网站。首页是以周一开始的月历，支持一天多餐、结构化食材、实际完成情况、身体反应、筛选和月度打印。
+一个适合家庭共同使用的宝宝照护记录网站。首页提供跨模块概览，辅食、生长与设置使用独立页面；当前支持辅食月历、多餐与反应记录，以及体重、身高、头围的生长趋势。
 
 ## Docker 部署
 
@@ -15,7 +15,8 @@ openssl rand -hex 32
 把前一条命令输出的整行哈希填写到 `.env` 的 `DODOBABY_PASSWORD_HASH`，把随机字符串填写到 `DODOBABY_SESSION_SECRET`，再将 `APP_URL` 改为实际 HTTPS 域名。
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
@@ -24,10 +25,11 @@ docker compose ps
 升级代码后重新执行：
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d --force-recreate
 ```
 
-SQLite 数据保存在 Docker 卷 `dodobaby_data` 中，重建应用容器不会删除记录。除卷级备份外，也可在网站的“导出”菜单下载每月 JSON 完整数据或 CSV 表格。
+SQLite 数据保存在部署目录的 `./data` 中，重建应用容器不会删除记录。辅食页面的“导出”菜单可下载当月 JSON、CSV、PDF 或高清图片。
 
 ## GitHub Actions 与镜像发布
 
@@ -59,6 +61,7 @@ npm run build
 ## 数据与打印
 
 - 每次写入会在一个 SQLite 事务内更新餐次、食材和反应标签。
+- 生长记录使用独立业务表并通过 `baby_id` 隔离，曲线只展示个人趋势，不提供医疗判断。
 - 月度 PDF 与高清图片由容器内 Chromium 生成，Docker 镜像已经包含中文字体。
 - PNG 主日历为 A4 横向 300 DPI；内容过多时自动在下方追加详情页。
 - PDF 使用 A4 横向分页，适合打印或另存归档。

@@ -13,9 +13,9 @@ export default async function LoginPage() {
     <main className="login-page">
       <section className="login-card">
         <BrandMark />
-        <p className="eyebrow">FAMILY FOOD DIARY</p>
-        <h1>宝宝辅食日记</h1>
-        <p className="login-intro">把每天的小菜单和小反应，认真留在一处。</p>
+        <p className="eyebrow">FAMILY BABY JOURNAL</p>
+        <h1>小芽日记</h1>
+        <p className="login-intro">把吃饭、成长和每一次用心照护，安心记在一起。</p>
         <LoginForm />
         <p className="login-note">这是家庭共享空间，请使用部署时设置的家庭密码。</p>
       </section>

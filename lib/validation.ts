@@ -18,6 +18,20 @@ export const foodCatalogItemSchema = z.object({
   defaultUnit: z.string().trim().max(20).nullable().optional(),
 });
 
+export const growthRecordSchema = z
+  .object({
+    measuredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "测量日期无效"),
+    weightKg: z.number().min(0.5, "体重不能小于 0.5kg").max(50, "体重不能大于 50kg").nullable().optional(),
+    heightCm: z.number().min(20, "身高不能小于 20cm").max(150, "身高不能大于 150cm").nullable().optional(),
+    headCircumferenceCm: z.number().min(15, "头围不能小于 15cm").max(80, "头围不能大于 80cm").nullable().optional(),
+    note: z.string().trim().max(300, "备注不能超过 300 个字符").nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.weightKg == null && value.heightCm == null && value.headCircumferenceCm == null) {
+      ctx.addIssue({ code: "custom", message: "请至少填写体重、身高或头围中的一项", path: ["weightKg"] });
+    }
+  });
+
 export const mealItemSchema = z.object({
   name: z.string().trim().min(1, "请输入食材名称").max(80),
   amount: z.number().nonnegative().max(100000).nullable().optional(),
@@ -49,3 +63,4 @@ export const mealSchema = z
   });
 
 export type MealInput = z.infer<typeof mealSchema>;
+export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;

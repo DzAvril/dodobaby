@@ -15,19 +15,17 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
-  LogOut,
   Pencil,
   Plus,
   Search,
-  Settings,
   Trash2,
   X,
 } from "lucide-react";
-import { BrandMark } from "@/components/BrandMark";
-import { formatAge, getMonthGrid } from "@/lib/dates";
+import { formatAge, getMonthGrid, todayInTimezone } from "@/lib/dates";
+import { jsonRequest } from "@/lib/client-api";
 
-type Baby = { id: string; name: string; birthDate: string; timezone: string };
-type FoodCatalogItem = { id: string; name: string; defaultUnit: string | null };
+export type Baby = { id: string; name: string; birthDate: string; timezone: string };
+export type FoodCatalogItem = { id: string; name: string; defaultUnit: string | null };
 type MealItem = {
   id?: string;
   name: string;
@@ -80,12 +78,6 @@ const REACTION_LABELS = Object.fromEntries(REACTION_OPTIONS);
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const UNITS = ["g", "ml", "勺", "滴", "块", "个", "份"];
 
-function todayInTimezone(timezone = "Asia/Shanghai") {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts();
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
-
 function shiftMonth(month: string, amount: number) {
   const [year, monthNumber] = month.split("-").map(Number);
   const date = new Date(Date.UTC(year, monthNumber - 1 + amount, 1));
@@ -111,18 +103,7 @@ function itemText(item: MealItem) {
   return `${item.name}${amount}${item.unit || ""}`;
 }
 
-async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (response.status === 401) {
-    window.location.assign("/login");
-    throw new Error("请先登录");
-  }
-  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error || "请求失败，请稍后重试");
-  return data;
-}
-
-function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby) => void }) {
+export function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby) => void }) {
   const [name, setName] = useState(baby?.name ?? "");
   const [birthDate, setBirthDate] = useState(baby?.birthDate ?? "");
   const [error, setError] = useState("");
@@ -163,7 +144,7 @@ function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby)
   );
 }
 
-function FoodCatalogManager({ foods, onChanged }: { foods: FoodCatalogItem[]; onChanged: (foods: FoodCatalogItem[]) => void }) {
+export function FoodCatalogManager({ foods, onChanged }: { foods: FoodCatalogItem[]; onChanged: (foods: FoodCatalogItem[]) => void }) {
   const [name, setName] = useState("");
   const [defaultUnit, setDefaultUnit] = useState("g");
   const [error, setError] = useState("");
@@ -212,7 +193,7 @@ function FoodCatalogManager({ foods, onChanged }: { foods: FoodCatalogItem[]; on
   );
 }
 
-function PasswordForm() {
+export function PasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -360,7 +341,7 @@ export function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: str
 
       <div className="editor-section actual-section">
         <h3>实际吃得怎么样</h3>
-        <div className="status-options">{STATUS_OPTIONS.map(([value, label]) => <button type="button" className={actualStatus === value ? "selected" : ""} key={value} onClick={() => setActualStatus(value)}>{actualStatus === value && <Check size={14} />}{label}</button>)}</div>
+        <div className="status-options">{STATUS_OPTIONS.map(([value, label]) => <button type="button" className={actualStatus === value ? "selected" : ""} aria-pressed={actualStatus === value} key={value} onClick={() => setActualStatus(value)}>{actualStatus === value && <Check size={14} />}{label}</button>)}</div>
         {actualStatus !== "planned" && <>
           <label className="actual-time"><span>实际时间</span><input type="time" value={actualTime} onChange={(event) => setActualTime(event.target.value)} /></label>
           <fieldset className="reaction-fields"><legend>宝宝反应</legend><div>{REACTION_OPTIONS.map(([value, label]) => <label key={value}><input type="checkbox" checked={reactionTags.includes(value)} onChange={() => toggleReaction(value)} /><span>{label}</span></label>)}</div></fieldset>
@@ -373,8 +354,7 @@ export function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: str
   );
 }
 
-export function DiaryApp() {
-  const [baby, setBaby] = useState<Baby | null | undefined>(undefined);
+export function DiaryApp({ baby }: { baby: Baby }) {
   const [month, setMonth] = useState(() => todayInTimezone().slice(0, 7));
   const [meals, setMeals] = useState<Meal[]>([]);
   const [foods, setFoods] = useState<FoodCatalogItem[]>([]);
@@ -382,12 +362,10 @@ export function DiaryApp() {
   const [selectedDate, setSelectedDate] = useState(() => todayInTimezone());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [formMeal, setFormMeal] = useState<Meal | null | undefined>(undefined);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [ingredientFilter, setIngredientFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [reactionFilter, setReactionFilter] = useState("");
   const drawerRef = useRef<HTMLDialogElement>(null);
-  const settingsRef = useRef<HTMLDialogElement>(null);
 
   const loadMeals = useCallback(async (targetMonth: string) => {
     setLoading(true);
@@ -401,21 +379,12 @@ export function DiaryApp() {
 
   useEffect(() => {
     let active = true;
-    jsonRequest<{ baby: Baby | null }>("/api/baby")
-      .then((data) => { if (active) setBaby(data.baby); })
-      .catch(() => { if (active) setBaby(null); });
-    return () => { active = false; };
-  }, []);
-  useEffect(() => {
-    if (!baby) return;
-    let active = true;
     jsonRequest<{ meals: Meal[] }>(`/api/meals?month=${month}`)
       .then((data) => { if (active) setMeals(data.meals); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [baby, month]);
   useEffect(() => {
-    if (!baby) return;
     let active = true;
     jsonRequest<{ foods: FoodCatalogItem[] }>("/api/foods")
       .then((data) => { if (active) setFoods(data.foods); })
@@ -428,13 +397,6 @@ export function DiaryApp() {
     if (drawerOpen && !dialog.open) dialog.showModal();
     if (!drawerOpen && dialog.open) dialog.close();
   }, [drawerOpen]);
-  useEffect(() => {
-    const dialog = settingsRef.current;
-    if (!dialog) return;
-    if (settingsOpen && !dialog.open) dialog.showModal();
-    if (!settingsOpen && dialog.open) dialog.close();
-  }, [settingsOpen]);
-
   const filteredMeals = useMemo(() => meals.filter((meal) => {
     const matchesIngredient = !ingredientFilter.trim() || meal.items.some((item) => item.name.toLowerCase().includes(ingredientFilter.trim().toLowerCase()));
     const matchesStatus = !statusFilter || meal.actualStatus === statusFilter;
@@ -443,13 +405,18 @@ export function DiaryApp() {
   }), [meals, ingredientFilter, statusFilter, reactionFilter]);
 
   const gridDates = useMemo(() => getMonthGrid(month), [month]);
-  const selectedMeals = meals.filter((meal) => meal.mealDate === selectedDate);
+  const selectedMeals = filteredMeals.filter((meal) => meal.mealDate === selectedDate);
   const filteredByDate = useMemo(() => new Map(gridDates.map((date) => [date, filteredMeals.filter((meal) => meal.mealDate === date)])), [gridDates, filteredMeals]);
   const completedCount = meals.filter((meal) => meal.actualStatus === "completed").length;
   const uniqueFoods = new Set(meals.flatMap((meal) => meal.items.map((item) => item.name.trim()).filter(Boolean))).size;
-  const today = todayInTimezone(baby?.timezone);
+  const today = todayInTimezone(baby.timezone);
 
   function openDay(date: string) {
+    const targetMonth = date.slice(0, 7);
+    if (targetMonth !== month) {
+      setLoading(true);
+      setMonth(targetMonth);
+    }
     setSelectedDate(date);
     setFormMeal(undefined);
     setDrawerOpen(true);
@@ -476,24 +443,8 @@ export function DiaryApp() {
     setFormMeal({ ...data.meal, id: "", mealDate: selectedDate, actualStatus: "planned", actualTime: null, actualNote: null, reactionTags: [] });
   }
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.assign("/login");
-  }
-
-  if (baby === undefined) return <main className="loading-page"><div className="loading-dot" /><p>正在打开日记…</p></main>;
-  if (!baby) return <main className="setup-page"><section className="setup-card"><div className="setup-copy"><p className="eyebrow">WELCOME HOME</p><h1>从今天开始，<br />好好记录每一口。</h1><p>先添加宝宝资料，月历会自动显示每天的月龄。</p></div><BabyForm onSaved={setBaby} /></section></main>;
-
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <div className="brand"><BrandMark small /><div><p>宝宝辅食日记</p><span>{baby.name} · {formatAge(baby.birthDate, today)}</span></div></div>
-        <nav aria-label="应用操作">
-          <button className="header-button" onClick={() => setSettingsOpen(true)}><Settings size={18} /><span>设置</span></button>
-          <button className="header-button" onClick={logout}><LogOut size={18} /><span>退出</span></button>
-        </nav>
-      </header>
-
+    <section className="food-module">
       <section className="dashboard-head">
         <div><p className="eyebrow">MONTHLY FOOD PLAN</p><h1>{baby.name}的辅食月历</h1><p>计划好每一餐，也留下宝宝真实的接受和反应。</p></div>
         <div className="month-stats" aria-label="本月概览"><div><strong>{meals.length}</strong><span>餐计划</span></div><div><strong>{completedCount}</strong><span>已吃完</span></div><div><strong>{uniqueFoods}</strong><span>种食材</span></div></div>
@@ -510,7 +461,7 @@ export function DiaryApp() {
               <a href={`/api/exports/month?month=${month}&format=png&scope=plan`}><FileImage />计划菜单高清图</a>
               <a href={`/api/exports/month?month=${month}&format=png&scope=full`}><FileImage />计划与实际高清图</a>
               <hr /><p>原始数据</p>
-              <a href={`/api/exports/data?month=${month}&format=json`}><FileJson />JSON 完整备份</a>
+              <a href={`/api/exports/data?month=${month}&format=json`}><FileJson />JSON 月度辅食数据</a>
               <a href={`/api/exports/data?month=${month}&format=csv`}><FileSpreadsheet />CSV 表格</a>
             </div></details>
             <button className="primary-button" onClick={() => openDay(today.startsWith(month) ? today : `${month}-01`)}><CirclePlus size={18} />添加辅食</button>
@@ -538,8 +489,8 @@ export function DiaryApp() {
         </div>
       </section>
 
-      <dialog ref={drawerRef} className="day-drawer" onClose={() => setDrawerOpen(false)}>
-        <div className="drawer-header"><div><p className="eyebrow">DAILY MENU</p><h2>{dateTitle(selectedDate)}</h2><span>{formatAge(baby.birthDate, selectedDate)}</span></div><button className="icon-button" aria-label="关闭" onClick={() => setDrawerOpen(false)}><X /></button></div>
+      <dialog ref={drawerRef} className="day-drawer" aria-labelledby="food-day-title" onClose={() => setDrawerOpen(false)}>
+        <div className="drawer-header"><div><p className="eyebrow">DAILY MENU</p><h2 id="food-day-title">{dateTitle(selectedDate)}</h2><span>{formatAge(baby.birthDate, selectedDate)}</span></div><button className="icon-button" aria-label="关闭" onClick={() => setDrawerOpen(false)}><X /></button></div>
         <div className="drawer-body">
           {formMeal !== undefined ? <MealEditor key={`${formMeal?.id ?? "new"}-${selectedDate}`} date={selectedDate} meal={formMeal} foods={foods} onCancel={() => setFormMeal(undefined)} onSaved={async () => { await loadMeals(month); setFormMeal(undefined); }} /> : <>
             <div className="drawer-actions"><button className="primary-button" onClick={() => setFormMeal(null)}><Plus size={17} />添加一餐</button><button className="secondary-button" onClick={copyPrevious}><ClipboardCopy size={17} />复制上一餐</button></div>
@@ -555,7 +506,6 @@ export function DiaryApp() {
         </div>
       </dialog>
 
-      <dialog ref={settingsRef} className="settings-dialog" onClose={() => setSettingsOpen(false)}><button className="dialog-close icon-button" aria-label="关闭" onClick={() => setSettingsOpen(false)}><X /></button><div className="settings-scroll"><BabyForm baby={baby} onSaved={setBaby} /><FoodCatalogManager foods={foods} onChanged={setFoods} /><PasswordForm /></div></dialog>
-    </main>
+    </section>
   );
 }

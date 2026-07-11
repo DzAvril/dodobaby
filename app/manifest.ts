@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "宝宝辅食日记",
-    short_name: "辅食日记",
-    description: "记录宝宝每天的辅食计划、食材和实际喂养情况。",
+    name: "小芽日记",
+    short_name: "小芽日记",
+    description: "分别记录宝宝的辅食、生长和日常照护。",
     start_url: "/",
     scope: "/",
     display: "standalone",

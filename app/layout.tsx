@@ -3,14 +3,14 @@ import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  applicationName: "宝宝辅食日记",
-  title: { default: "宝宝辅食日记", template: "%s · 宝宝辅食日记" },
-  description: "为家人准备的宝宝辅食计划与实际喂养记录。",
+  applicationName: "小芽日记",
+  title: { default: "小芽日记", template: "%s · 小芽日记" },
+  description: "为家人准备的宝宝辅食、生长与日常照护记录。",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "宝宝辅食日记",
+    title: "小芽日记",
   },
   icons: {
     icon: [
@@ -24,6 +24,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#fbf7ef",
 };
 
