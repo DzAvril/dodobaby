@@ -97,8 +97,27 @@ export const growthRecords = sqliteTable(
   ],
 );
 
+export const feedingRecords = sqliteTable(
+  "feeding_records",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    feedingDate: text("feeding_date").notNull(),
+    startedTime: text("started_time").notNull(),
+    leftDurationMinutes: integer("left_duration_minutes"),
+    rightDurationMinutes: integer("right_duration_minutes"),
+    expressedMilkMl: real("expressed_milk_ml"),
+    formulaMl: real("formula_ml"),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("feeding_records_baby_date_idx").on(table.babyId, table.feedingDate)],
+);
+
 export type Baby = typeof babies.$inferSelect;
 export type MealEntryRow = typeof mealEntries.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
 export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;
 export type GrowthRecord = typeof growthRecords.$inferSelect;
+export type FeedingRecord = typeof feedingRecords.$inferSelect;

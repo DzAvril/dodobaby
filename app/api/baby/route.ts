@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthenticated, isSameOrigin } from "@/lib/auth";
 import { createBaby, getCurrentBaby, updateBaby } from "@/lib/meals";
 import { getEarliestGrowthRecordDate } from "@/lib/growth";
+import { getEarliestFeedingRecordDate } from "@/lib/feedings";
 import { babySchema } from "@/lib/validation";
 import { parseDate, todayInTimezone } from "@/lib/dates";
 
@@ -19,9 +20,14 @@ export async function POST(request: Request) {
   try {
     parseDate(parsed.data.birthDate);
     if (parsed.data.birthDate > todayInTimezone(parsed.data.timezone)) throw new Error("出生日期不能晚于今天");
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "宝宝资料无效" }, { status: 400 });
+  }
+  try {
     return NextResponse.json({ baby: await createBaby(parsed.data) }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "保存失败" }, { status: 400 });
+    console.error("Baby profile creation failed", error);
+    return NextResponse.json({ error: "保存失败，请稍后重试" }, { status: 500 });
   }
 }
 
@@ -35,12 +41,32 @@ export async function PATCH(request: Request) {
   try {
     parseDate(parsed.data.birthDate);
     if (parsed.data.birthDate > todayInTimezone(parsed.data.timezone)) throw new Error("出生日期不能晚于今天");
-    const earliestGrowthDate = await getEarliestGrowthRecordDate(baby.id);
-    if (earliestGrowthDate && parsed.data.birthDate > earliestGrowthDate) {
-      throw new Error(`出生日期不能晚于已有生长记录（${earliestGrowthDate}）`);
-    }
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "宝宝资料无效" }, { status: 400 });
+  }
+
+  let earliestGrowthDate: string | null;
+  let earliestFeedingDate: string | null;
+  try {
+    [earliestGrowthDate, earliestFeedingDate] = await Promise.all([
+      getEarliestGrowthRecordDate(baby.id),
+      getEarliestFeedingRecordDate(baby.id),
+    ]);
+  } catch (error) {
+    console.error("Baby timeline validation failed", error);
+    return NextResponse.json({ error: "暂时无法检查已有记录，请稍后重试" }, { status: 500 });
+  }
+  if (earliestGrowthDate && parsed.data.birthDate > earliestGrowthDate) {
+    return NextResponse.json({ error: `出生日期不能晚于已有生长记录（${earliestGrowthDate}）` }, { status: 400 });
+  }
+  if (earliestFeedingDate && parsed.data.birthDate > earliestFeedingDate) {
+    return NextResponse.json({ error: `出生日期不能晚于已有喂养记录（${earliestFeedingDate}）` }, { status: 400 });
+  }
+
+  try {
     return NextResponse.json({ baby: await updateBaby(baby.id, parsed.data) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "保存失败" }, { status: 400 });
+    console.error("Baby profile update failed", error);
+    return NextResponse.json({ error: "保存失败，请稍后重试" }, { status: 500 });
   }
 }

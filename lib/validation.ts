@@ -32,6 +32,26 @@ export const growthRecordSchema = z
     }
   });
 
+export const feedingRecordSchema = z
+  .object({
+    feedingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "喂养日期无效"),
+    startedTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "开始时间无效"),
+    leftDurationMinutes: z.number().int("左侧时长必须是整数").min(1, "左侧时长至少为 1 分钟").max(180, "左侧时长不能超过 180 分钟").nullable().optional(),
+    rightDurationMinutes: z.number().int("右侧时长必须是整数").min(1, "右侧时长至少为 1 分钟").max(180, "右侧时长不能超过 180 分钟").nullable().optional(),
+    expressedMilkMl: z.number().positive("瓶喂母乳必须大于 0ml").max(1000, "瓶喂母乳不能超过 1000ml").nullable().optional(),
+    formulaMl: z.number().positive("配方奶必须大于 0ml").max(1000, "配方奶不能超过 1000ml").nullable().optional(),
+    note: z.string().trim().max(300, "备注不能超过 300 个字符").nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const directMinutes = (value.leftDurationMinutes ?? 0) + (value.rightDurationMinutes ?? 0);
+    if (directMinutes > 240) {
+      ctx.addIssue({ code: "custom", message: "左右两侧总时长不能超过 240 分钟", path: ["rightDurationMinutes"] });
+    }
+    if (directMinutes === 0 && (value.expressedMilkMl ?? 0) === 0 && (value.formulaMl ?? 0) === 0) {
+      ctx.addIssue({ code: "custom", message: "请至少记录一项喂养量", path: ["leftDurationMinutes"] });
+    }
+  });
+
 export const mealItemSchema = z.object({
   name: z.string().trim().min(1, "请输入食材名称").max(80),
   amount: z.number().nonnegative().max(100000).nullable().optional(),
@@ -64,3 +84,4 @@ export const mealSchema = z
 
 export type MealInput = z.infer<typeof mealSchema>;
 export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;
+export type FeedingRecordInput = z.infer<typeof feedingRecordSchema>;

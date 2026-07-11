@@ -55,6 +55,41 @@ jobs:
             dodobaby:ci \
             -c 'test -d "$HOME" && test -w "$HOME" && chromium --headless --no-sandbox --disable-dev-shm-usage --dump-dom "data:text/html,<p>PDF smoke</p>" 2>/tmp/chromium-smoke.err | grep -q "PDF smoke"'
 
+      - name: Validate application runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=dodobaby-runtime-smoke
+          session_secret=runtime-smoke-session-secret-1234567890
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d \
+            --name "$container" \
+            --security-opt no-new-privileges:true \
+            --tmpfs /tmp:size=512m,mode=1777 \
+            --shm-size=256m \
+            -p 127.0.0.1:13000:3000 \
+            -e APP_URL=http://127.0.0.1:13000 \
+            -e DODOBABY_SESSION_SECRET="$session_secret" \
+            dodobaby:ci
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:13000/api/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          SMOKE_SESSION_SECRET="$session_secret" node scripts/runtime-smoke.mjs http://127.0.0.1:13000
+          chrome_path=$(command -v google-chrome || command -v chromium || true)
+          if [ -z "$chrome_path" ]; then
+            echo "No Chromium-compatible browser found on the runner."
+            exit 1
+          fi
+          SMOKE_SESSION_SECRET="$session_secret" CHROMIUM_PATH="$chrome_path" node scripts/browser-smoke.mjs http://127.0.0.1:13000
+
   publish:
     name: Publish Docker Hub image
     needs: build
