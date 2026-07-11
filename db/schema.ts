@@ -115,9 +115,36 @@ export const feedingRecords = sqliteTable(
   (table) => [index("feeding_records_baby_date_idx").on(table.babyId, table.feedingDate)],
 );
 
+export const vaccinationRecords = sqliteTable(
+  "vaccination_records",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    vaccineName: text("vaccine_name").notNull(),
+    doseNumber: integer("dose_number").notNull(),
+    category: text("category", { enum: ["immunization_program", "non_immunization_program", "unknown"] }).notNull().default("unknown"),
+    status: text("status", { enum: ["planned", "completed"] }).notNull(),
+    plannedDate: text("planned_date"),
+    plannedTime: text("planned_time"),
+    administeredDate: text("administered_date"),
+    manufacturer: text("manufacturer"),
+    batchNumber: text("batch_number"),
+    administrationSite: text("administration_site"),
+    vaccinationUnit: text("vaccination_unit"),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("vaccination_records_baby_status_planned_date_idx").on(table.babyId, table.status, table.plannedDate),
+    index("vaccination_records_baby_administered_date_idx").on(table.babyId, table.administeredDate),
+  ],
+);
+
 export type Baby = typeof babies.$inferSelect;
 export type MealEntryRow = typeof mealEntries.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
 export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;
 export type GrowthRecord = typeof growthRecords.$inferSelect;
 export type FeedingRecord = typeof feedingRecords.$inferSelect;
+export type VaccinationRecord = typeof vaccinationRecords.$inferSelect;

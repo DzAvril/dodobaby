@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "小芽日记",
     short_name: "小芽日记",
-    description: "分别记录宝宝的辅食、喂养、生长和日常照护。",
+    description: "分别记录宝宝的辅食、喂养、生长、疫苗和日常照护。",
     start_url: "/",
     scope: "/",
     display: "standalone",

@@ -15,6 +15,12 @@ function sessionToken() {
   return `${payload}.${signature}`;
 }
 
+function shiftDate(date, days) {
+  const shifted = new Date(`${date}T00:00:00Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
 async function authenticatedContext(browser, viewport) {
   const context = await browser.newContext({ viewport });
   await context.addCookies([{
@@ -24,6 +30,13 @@ async function authenticatedContext(browser, viewport) {
     sameSite: "Lax",
   }]);
   return context;
+}
+
+async function undersizedTouchTargets(page) {
+  return page.locator("button, input, select, a").evaluateAll((elements) => elements
+    .filter((element) => element instanceof HTMLElement && element.offsetParent !== null)
+    .map((element) => ({ label: element.getAttribute("aria-label") || element.textContent?.trim(), height: element.getBoundingClientRect().height }))
+    .filter((target) => target.height < 44));
 }
 
 const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
@@ -78,28 +91,137 @@ try {
   assert.match(await errorAlert.textContent(), /模拟加载失败/);
   await desktop.close();
 
+  const vaccinationDesktop = await authenticatedContext(browser, { width: 1440, height: 900 });
+  const vaccinationPage = await vaccinationDesktop.newPage();
+  await vaccinationPage.goto(`${baseUrl}/vaccines`, { waitUntil: "networkidle" });
+  await vaccinationPage.getByRole("heading", { name: /疫苗记录/ }).waitFor();
+  assert.equal(await vaccinationPage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+
+  const vaccinationTrigger = vaccinationPage.getByRole("button", { name: "添加疫苗记录" });
+  await vaccinationTrigger.click();
+  const vaccinationDialog = vaccinationPage.getByRole("dialog", { name: "添加疫苗记录" });
+  await vaccinationDialog.waitFor();
+  await vaccinationPage.keyboard.press("Escape");
+  await vaccinationDialog.waitFor({ state: "hidden" });
+  await vaccinationPage.waitForFunction(() => document.activeElement?.textContent?.includes("添加疫苗记录"));
+
+  await vaccinationTrigger.click();
+  await vaccinationDialog.waitFor();
+  const vaccineName = `浏览器测试疫苗-${Date.now()}`;
+  const plannedDate = vaccinationDialog.locator('input[type="date"]').first();
+  const todayForVaccination = await plannedDate.inputValue();
+  await vaccinationDialog.getByLabel("疫苗名称").fill(vaccineName);
+  await vaccinationDialog.getByLabel("剂次").fill("2");
+  await vaccinationDialog.getByLabel("分类").selectOption("immunization_program");
+  await plannedDate.fill(shiftDate(todayForVaccination, 1));
+  await vaccinationDialog.getByLabel(/计划时间/).fill("09:15");
+  await vaccinationDialog.getByLabel(/计划接种单位/).fill("浏览器测试门诊");
+  await vaccinationDialog.locator("textarea").fill("端到端计划记录");
+  await vaccinationDialog.getByRole("button", { name: "添加记录" }).click();
+  await vaccinationDialog.waitFor({ state: "hidden" });
+  await vaccinationPage.waitForFunction(() => document.activeElement?.textContent?.includes("添加疫苗记录"));
+
+  const plannedCard = vaccinationPage.locator(".vaccination-list > article").filter({ hasText: vaccineName });
+  await plannedCard.waitFor();
+  assert.match(await plannedCard.textContent(), /第 2 剂/);
+  await plannedCard.getByRole("button", { name: "登记已接种" }).click();
+  const completionDialog = vaccinationPage.getByRole("dialog", { name: "登记已接种" });
+  await completionDialog.waitFor();
+  assert.equal(await completionDialog.getByLabel("实际接种日期").inputValue(), todayForVaccination);
+  await completionDialog.getByLabel(/生产厂家/).fill("浏览器测试企业");
+  await completionDialog.getByLabel(/批号/).fill("BROWSER-1");
+  await completionDialog.getByLabel(/接种部位/).fill("左上臂");
+  await completionDialog.getByRole("button", { name: "确认已接种" }).click();
+  await completionDialog.waitFor({ state: "hidden" });
+
+  const historyCard = vaccinationPage.locator(".vaccination-list-card.history article").filter({ hasText: vaccineName });
+  await historyCard.waitFor();
+  assert.match(await historyCard.textContent(), /浏览器测试企业/);
+  await historyCard.getByRole("button", { name: "编辑" }).click();
+  const vaccinationEditDialog = vaccinationPage.getByRole("dialog", { name: "编辑疫苗记录" });
+  await vaccinationEditDialog.getByRole("button", { name: "计划接种" }).click();
+  await vaccinationEditDialog.getByRole("button", { name: "保存修改" }).click();
+  await vaccinationEditDialog.waitFor({ state: "hidden" });
+  await plannedCard.waitFor();
+  await plannedCard.getByRole("button", { name: "登记已接种" }).click();
+  const secondCompletionDialog = vaccinationPage.getByRole("dialog", { name: "登记已接种" });
+  assert.equal(await secondCompletionDialog.getByLabel(/生产厂家/).inputValue(), "");
+  assert.equal(await secondCompletionDialog.getByLabel(/批号/).inputValue(), "");
+  assert.equal(await secondCompletionDialog.getByLabel(/接种部位/).inputValue(), "");
+  assert.equal(await secondCompletionDialog.getByLabel(/接种单位/).inputValue(), "浏览器测试门诊");
+  assert.equal(await secondCompletionDialog.locator("textarea").inputValue(), "端到端计划记录");
+  await secondCompletionDialog.getByLabel(/生产厂家/).fill("更新后的浏览器测试企业");
+  await secondCompletionDialog.getByRole("button", { name: "确认已接种" }).click();
+  await secondCompletionDialog.waitFor({ state: "hidden" });
+  await vaccinationPage.waitForFunction((name) => [...document.querySelectorAll(".vaccination-list-card.history article")]
+    .some((card) => card.textContent?.includes(name) && card.textContent?.includes("更新后的浏览器测试企业")), vaccineName);
+
+  vaccinationPage.once("dialog", (confirmation) => confirmation.accept());
+  await historyCard.getByRole("button", { name: "删除" }).click();
+  await historyCard.waitFor({ state: "detached" });
+
+  await vaccinationPage.route("**/api/vaccines", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ error: "模拟疫苗加载失败" }),
+  }));
+  await vaccinationPage.reload({ waitUntil: "networkidle" });
+  const vaccinationError = vaccinationPage.locator('.module-error[role="alert"]');
+  await vaccinationError.waitFor();
+  assert.match(await vaccinationError.textContent(), /模拟疫苗加载失败/);
+  await vaccinationPage.getByRole("button", { name: "重新加载" }).waitFor();
+  assert.equal(await vaccinationPage.locator(".vaccination-summary-grid, .vaccination-record-sections").count(), 0);
+  await vaccinationDesktop.close();
+
   const mobile = await authenticatedContext(browser, { width: 390, height: 844 });
   const mobilePage = await mobile.newPage();
   await mobilePage.goto(`${baseUrl}/feeding`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
-  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "辅食", "喂养", "生长"]);
-  const undersizedTargets = await mobilePage.locator("button, input, select, a").evaluateAll((elements) => elements
-    .filter((element) => element instanceof HTMLElement && element.offsetParent !== null)
-    .map((element) => ({ label: element.getAttribute("aria-label") || element.textContent?.trim(), height: element.getBoundingClientRect().height }))
-    .filter((target) => target.height < 44));
-  assert.deepEqual(undersizedTargets, []);
+  assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "辅食", "喂养", "生长", "疫苗"]);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
-  const mobileTrigger = mobilePage.getByRole("button", { name: "添加喂养" });
+  const mobileFeedingTrigger = mobilePage.getByRole("button", { name: "添加喂养" });
+  await mobileFeedingTrigger.click();
+  const mobileFeedingDialog = mobilePage.getByRole("dialog", { name: "添加喂养" });
+  const feedingBounds = await mobileFeedingDialog.boundingBox();
+  assert.ok(feedingBounds && Math.abs(feedingBounds.y + feedingBounds.height - 844) <= 1, `mobile feeding dialog is not bottom aligned: ${JSON.stringify(feedingBounds)}`);
+  assert.ok(feedingBounds && Math.abs(feedingBounds.width - 390) <= 1, `mobile feeding dialog is not full width: ${JSON.stringify(feedingBounds)}`);
+  await mobileFeedingDialog.getByRole("button", { name: "关闭" }).click();
+  await mobileFeedingDialog.waitFor({ state: "hidden" });
+  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加喂养"));
+
+  await mobilePage.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
+  const mobileGrowthTrigger = mobilePage.getByRole("button", { name: "添加测量" });
+  await mobileGrowthTrigger.click();
+  const mobileGrowthDialog = mobilePage.getByRole("dialog", { name: "添加测量" });
+  const growthBounds = await mobileGrowthDialog.boundingBox();
+  assert.ok(growthBounds && Math.abs(growthBounds.y + growthBounds.height - 844) <= 1, `mobile growth dialog is not bottom aligned: ${JSON.stringify(growthBounds)}`);
+  assert.ok(growthBounds && Math.abs(growthBounds.width - 390) <= 1, `mobile growth dialog is not full width: ${JSON.stringify(growthBounds)}`);
+  await mobileGrowthDialog.getByRole("button", { name: "关闭" }).click();
+  await mobileGrowthDialog.waitFor({ state: "hidden" });
+  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加测量"));
+
+  await mobilePage.goto(`${baseUrl}/vaccines`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+
+  const mobileTrigger = mobilePage.getByRole("button", { name: "添加疫苗记录" });
   await mobileTrigger.click();
-  const mobileDialog = mobilePage.getByRole("dialog", { name: "添加喂养" });
+  const mobileDialog = mobilePage.getByRole("dialog", { name: "添加疫苗记录" });
   const bounds = await mobileDialog.boundingBox();
   assert.ok(bounds && Math.abs(bounds.y + bounds.height - 844) <= 1, `mobile dialog is not bottom aligned: ${JSON.stringify(bounds)}`);
+  assert.ok(bounds && Math.abs(bounds.width - 390) <= 1, `mobile dialog is not full width: ${JSON.stringify(bounds)}`);
+  const vaccinationSaveBounds = await mobileDialog.getByRole("button", { name: "添加记录" }).boundingBox();
+  assert.ok(vaccinationSaveBounds && vaccinationSaveBounds.y + vaccinationSaveBounds.height <= 844, `mobile vaccination action is not visible: ${JSON.stringify(vaccinationSaveBounds)}`);
   await mobileDialog.getByRole("button", { name: "关闭" }).click();
   await mobileDialog.waitFor({ state: "hidden" });
-  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加喂养"));
+  await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加疫苗记录"));
+
+  await mobilePage.goto(`${baseUrl}/settings`, { waitUntil: "networkidle" });
+  await mobilePage.getByRole("button", { name: "退出登录" }).waitFor();
   await mobile.close();
 } finally {
   await browser.close();
 }
 
-console.log("Browser smoke passed: desktop CRUD, date switching, failure state, mobile layout, touch targets, and focus");
+console.log("Browser smoke passed: feeding and vaccination CRUD, failure states, responsive layout, touch targets, and focus");

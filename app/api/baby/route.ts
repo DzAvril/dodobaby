@@ -3,6 +3,7 @@ import { isAuthenticated, isSameOrigin } from "@/lib/auth";
 import { createBaby, getCurrentBaby, updateBaby } from "@/lib/meals";
 import { getEarliestGrowthRecordDate } from "@/lib/growth";
 import { getEarliestFeedingRecordDate } from "@/lib/feedings";
+import { getEarliestVaccinationRecordDate } from "@/lib/vaccines";
 import { babySchema } from "@/lib/validation";
 import { parseDate, todayInTimezone } from "@/lib/dates";
 
@@ -47,10 +48,12 @@ export async function PATCH(request: Request) {
 
   let earliestGrowthDate: string | null;
   let earliestFeedingDate: string | null;
+  let earliestVaccinationDate: string | null;
   try {
-    [earliestGrowthDate, earliestFeedingDate] = await Promise.all([
+    [earliestGrowthDate, earliestFeedingDate, earliestVaccinationDate] = await Promise.all([
       getEarliestGrowthRecordDate(baby.id),
       getEarliestFeedingRecordDate(baby.id),
+      getEarliestVaccinationRecordDate(baby.id),
     ]);
   } catch (error) {
     console.error("Baby timeline validation failed", error);
@@ -61,6 +64,9 @@ export async function PATCH(request: Request) {
   }
   if (earliestFeedingDate && parsed.data.birthDate > earliestFeedingDate) {
     return NextResponse.json({ error: `出生日期不能晚于已有喂养记录（${earliestFeedingDate}）` }, { status: 400 });
+  }
+  if (earliestVaccinationDate && parsed.data.birthDate > earliestVaccinationDate) {
+    return NextResponse.json({ error: `出生日期不能晚于已有疫苗记录（${earliestVaccinationDate}）` }, { status: 400 });
   }
 
   try {

@@ -52,6 +52,65 @@ export const feedingRecordSchema = z
     }
   });
 
+const optionalVaccinationDateSchema = z
+  .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期无效")])
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+
+const optionalVaccinationTimeSchema = z
+  .union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "计划时间无效")])
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+
+function optionalVaccinationTextSchema(max: number, message: string) {
+  return z
+    .string()
+    .trim()
+    .max(max, message)
+    .nullable()
+    .optional()
+    .transform((value) => value || null);
+}
+
+export const vaccinationRecordSchema = z
+  .object({
+    vaccineName: z.string().trim().min(1, "请输入疫苗名称").max(80, "疫苗名称不能超过 80 个字符"),
+    doseNumber: z.number().int("剂次必须是整数").min(1, "剂次不能小于 1").max(99, "剂次不能大于 99"),
+    category: z.enum(["immunization_program", "non_immunization_program", "unknown"]).default("unknown"),
+    status: z.enum(["planned", "completed"]),
+    plannedDate: optionalVaccinationDateSchema,
+    plannedTime: optionalVaccinationTimeSchema,
+    administeredDate: optionalVaccinationDateSchema,
+    manufacturer: optionalVaccinationTextSchema(80, "生产企业不能超过 80 个字符"),
+    batchNumber: optionalVaccinationTextSchema(40, "批号不能超过 40 个字符"),
+    administrationSite: optionalVaccinationTextSchema(80, "接种部位不能超过 80 个字符"),
+    vaccinationUnit: optionalVaccinationTextSchema(120, "接种单位不能超过 120 个字符"),
+    note: optionalVaccinationTextSchema(500, "备注不能超过 500 个字符"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "planned" && !value.plannedDate) {
+      ctx.addIssue({ code: "custom", message: "计划接种记录必须填写计划日期", path: ["plannedDate"] });
+    }
+    if (value.status === "planned" && value.administeredDate) {
+      ctx.addIssue({ code: "custom", message: "计划接种记录不能填写实际接种日期", path: ["administeredDate"] });
+    }
+    if (value.status === "completed" && !value.administeredDate) {
+      ctx.addIssue({ code: "custom", message: "已接种记录必须填写实际接种日期", path: ["administeredDate"] });
+    }
+    if (value.plannedTime && !value.plannedDate) {
+      ctx.addIssue({ code: "custom", message: "填写计划时间前请先填写计划日期", path: ["plannedTime"] });
+    }
+  })
+  .transform((value) => value.status === "planned" ? {
+    ...value,
+    administeredDate: null,
+    manufacturer: null,
+    batchNumber: null,
+    administrationSite: null,
+  } : value);
+
 export const mealItemSchema = z.object({
   name: z.string().trim().min(1, "请输入食材名称").max(80),
   amount: z.number().nonnegative().max(100000).nullable().optional(),
@@ -85,3 +144,4 @@ export const mealSchema = z
 export type MealInput = z.infer<typeof mealSchema>;
 export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;
 export type FeedingRecordInput = z.infer<typeof feedingRecordSchema>;
+export type VaccinationRecordInput = z.infer<typeof vaccinationRecordSchema>;

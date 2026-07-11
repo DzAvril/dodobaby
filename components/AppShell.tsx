@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartNoAxesCombined, Home, LogOut, Milk, Settings, Utensils } from "lucide-react";
+import { ChartNoAxesCombined, Home, LogOut, Milk, Settings, Syringe, Utensils } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import type { Baby } from "@/components/DiaryApp";
 import { formatAge, todayInTimezone } from "@/lib/dates";
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/food", label: "辅食", description: "计划与反馈", icon: Utensils },
   { href: "/feeding", label: "喂养", description: "亲喂与奶量", icon: Milk },
   { href: "/growth", label: "生长", description: "测量与趋势", icon: ChartNoAxesCombined },
+  { href: "/vaccines", label: "疫苗", description: "计划与接种事实", icon: Syringe },
 ] as const;
 
 const SETTINGS_ITEM = { href: "/settings", label: "设置" } as const;

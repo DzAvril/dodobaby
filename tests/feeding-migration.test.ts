@@ -57,7 +57,7 @@ test("旧数据库升级到喂养迁移时保留原数据并建立外键", () =>
     ] as const) {
       assert.equal(sqlite.prepare(`SELECT count(*) AS count FROM ${table}`).get().count, expected);
     }
-    assert.equal(sqlite.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get().count, 4);
+    assert.equal(sqlite.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get().count, migrations.length);
     assert.equal(sqlite.prepare("SELECT count(*) AS count FROM feeding_records").get().count, 0);
     assert.deepEqual(
       sqlite.pragma("index_info('feeding_records_baby_date_idx')").map((column: { name: string }) => column.name),

@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   applicationName: "小芽日记",
   title: { default: "小芽日记", template: "%s · 小芽日记" },
-  description: "为家人准备的宝宝辅食、喂养、生长与日常照护记录。",
+  description: "为家人准备的宝宝辅食、喂养、生长、疫苗与日常照护记录。",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
