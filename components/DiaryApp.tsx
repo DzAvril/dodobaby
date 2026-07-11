@@ -27,6 +27,7 @@ import { BrandMark } from "@/components/BrandMark";
 import { formatAge, getMonthGrid } from "@/lib/dates";
 
 type Baby = { id: string; name: string; birthDate: string; timezone: string };
+type FoodCatalogItem = { id: string; name: string; defaultUnit: string | null };
 type MealItem = {
   id?: string;
   name: string;
@@ -162,7 +163,105 @@ function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby)
   );
 }
 
-function MealEditor({ date, meal, onSaved, onCancel }: { date: string; meal: Meal | null; onSaved: () => void; onCancel: () => void }) {
+function FoodCatalogManager({ foods, onChanged }: { foods: FoodCatalogItem[]; onChanged: (foods: FoodCatalogItem[]) => void }) {
+  const [name, setName] = useState("");
+  const [defaultUnit, setDefaultUnit] = useState("g");
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function addFood(event: React.FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    try {
+      const data = await jsonRequest<{ food: FoodCatalogItem }>("/api/foods", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, defaultUnit: defaultUnit || null }),
+      });
+      onChanged([...foods, data.food].sort((left, right) => left.name.localeCompare(right.name, "zh-CN")));
+      setName("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "添加失败");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removeFood(food: FoodCatalogItem) {
+    if (!window.confirm(`确定从辅食库删除“${food.name}”吗？已有餐次记录不会受影响。`)) return;
+    try {
+      await jsonRequest(`/api/foods/${food.id}`, { method: "DELETE" });
+      onChanged(foods.filter((item) => item.id !== food.id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "删除失败");
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="settings-heading"><p className="eyebrow">FOOD LIBRARY</p><h3>辅食库</h3><p>维护常用食材，添加计划时可直接选择并带出默认单位。</p></div>
+      <form className="catalog-form" onSubmit={addFood}>
+        <label><span>辅食名称</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="例如：胡萝卜泥" required /></label>
+        <label><span>默认单位</span><select value={defaultUnit} onChange={(event) => setDefaultUnit(event.target.value)}><option value="">不设置</option>{UNITS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+        <button className="secondary-button" disabled={pending}><Plus size={16} />{pending ? "添加中…" : "添加"}</button>
+      </form>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {foods.length > 0 ? <div className="catalog-list">{foods.map((food) => <div key={food.id}><span>{food.name}</span><small>{food.defaultUnit || "无默认单位"}</small><button type="button" className="icon-button" aria-label={`删除 ${food.name}`} onClick={() => removeFood(food)}><Trash2 size={15} /></button></div>)}</div> : <p className="settings-empty">还没有辅食，先添加一种常用食材吧。</p>}
+    </section>
+  );
+}
+
+function PasswordForm() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    if (newPassword !== confirmPassword) {
+      setError("两次输入的新密码不一致");
+      return;
+    }
+    setPending(true);
+    try {
+      await jsonRequest("/api/auth/password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setSuccess("家庭密码已更新，下次登录请使用新密码。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "修改失败");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form className="settings-section" onSubmit={submit}>
+      <div className="settings-heading"><p className="eyebrow">FAMILY PASSWORD</p><h3>修改家庭密码</h3><p>新密码至少 8 个字符，修改后不会影响当前登录。</p></div>
+      <div className="password-grid">
+        <label><span>当前密码</span><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
+        <label><span>新密码</span><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required /></label>
+        <label><span>确认新密码</span><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required /></label>
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {success && <p className="form-success" role="status">{success}</p>}
+      <button className="secondary-button" disabled={pending}>{pending ? "修改中…" : "更新密码"}</button>
+    </form>
+  );
+}
+
+function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: string; meal: Meal | null; foods: FoodCatalogItem[]; onSaved: () => void; onCancel: () => void }) {
   const [mealType, setMealType] = useState(meal?.mealType ?? "lunch");
   const [customMealType, setCustomMealType] = useState(meal?.customMealType ?? "");
   const [plannedTime, setPlannedTime] = useState(meal?.plannedTime ?? "11:30");
@@ -179,6 +278,11 @@ function MealEditor({ date, meal, onSaved, onCancel }: { date: string; meal: Mea
 
   function updateItem(index: number, patch: Partial<MealItem>) {
     setItems((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  }
+
+  function updateItemName(index: number, name: string) {
+    const catalogItem = foods.find((food) => food.name === name);
+    updateItem(index, { name, ...(catalogItem?.defaultUnit ? { unit: catalogItem.defaultUnit } : {}) });
   }
 
   function toggleReaction(tag: string) {
@@ -233,7 +337,7 @@ function MealEditor({ date, meal, onSaved, onCancel }: { date: string; meal: Mea
         <div className="ingredient-list">
           {items.map((item, index) => (
             <div className="ingredient-row" key={index}>
-              <label className="ingredient-name"><span>食材 {index + 1}</span><input value={item.name} onChange={(event) => updateItem(index, { name: event.target.value })} placeholder="例如：胡萝卜泥" required /></label>
+              <label className="ingredient-name"><span>食材 {index + 1}</span><input list="food-catalog-options" value={item.name} onChange={(event) => updateItemName(index, event.target.value)} placeholder={foods.length ? "输入或从辅食库选择" : "例如：胡萝卜泥"} required /></label>
               <label className="ingredient-amount"><span>数量</span><input type="number" min="0" step="0.1" value={item.amount ?? ""} onChange={(event) => updateItem(index, { amount: event.target.value === "" ? null : Number(event.target.value) })} placeholder="10" /></label>
               <label className="ingredient-unit"><span>单位</span><input list="food-units" value={item.unit ?? ""} onChange={(event) => updateItem(index, { unit: event.target.value })} placeholder="g" /></label>
               <label className="ingredient-preparation"><span>做法</span><input value={item.preparation ?? ""} onChange={(event) => updateItem(index, { preparation: event.target.value })} placeholder="蒸熟打泥（可选）" /></label>
@@ -242,6 +346,7 @@ function MealEditor({ date, meal, onSaved, onCancel }: { date: string; meal: Mea
             </div>
           ))}
         </div>
+        <datalist id="food-catalog-options">{foods.map((food) => <option key={food.id} value={food.name}>{food.defaultUnit || ""}</option>)}</datalist>
         <datalist id="food-units">{UNITS.map((unit) => <option key={unit} value={unit} />)}</datalist>
         <button className="text-button" type="button" onClick={() => setItems((current) => [...current, { name: "", amount: null, unit: "g", preparation: "", isFirstTry: false }])}><Plus size={16} />添加食材</button>
         <label><span>计划备注</span><textarea value={planNote} onChange={(event) => setPlanNote(event.target.value)} maxLength={500} rows={2} placeholder="例如：米粉先用温水冲开" /></label>
@@ -266,6 +371,7 @@ export function DiaryApp() {
   const [baby, setBaby] = useState<Baby | null | undefined>(undefined);
   const [month, setMonth] = useState(() => todayInTimezone().slice(0, 7));
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [foods, setFoods] = useState<FoodCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(() => todayInTimezone());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -302,6 +408,14 @@ export function DiaryApp() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [baby, month]);
+  useEffect(() => {
+    if (!baby) return;
+    let active = true;
+    jsonRequest<{ foods: FoodCatalogItem[] }>("/api/foods")
+      .then((data) => { if (active) setFoods(data.foods); })
+      .catch(() => { if (active) setFoods([]); });
+    return () => { active = false; };
+  }, [baby]);
   useEffect(() => {
     const dialog = drawerRef.current;
     if (!dialog) return;
@@ -369,7 +483,7 @@ export function DiaryApp() {
       <header className="app-header">
         <div className="brand"><BrandMark small /><div><p>宝宝辅食日记</p><span>{baby.name} · {formatAge(baby.birthDate, today)}</span></div></div>
         <nav aria-label="应用操作">
-          <button className="header-button" onClick={() => setSettingsOpen(true)}><Settings size={18} /><span>宝宝资料</span></button>
+          <button className="header-button" onClick={() => setSettingsOpen(true)}><Settings size={18} /><span>设置</span></button>
           <button className="header-button" onClick={logout}><LogOut size={18} /><span>退出</span></button>
         </nav>
       </header>
@@ -421,7 +535,7 @@ export function DiaryApp() {
       <dialog ref={drawerRef} className="day-drawer" onClose={() => setDrawerOpen(false)}>
         <div className="drawer-header"><div><p className="eyebrow">DAILY MENU</p><h2>{dateTitle(selectedDate)}</h2><span>{formatAge(baby.birthDate, selectedDate)}</span></div><button className="icon-button" aria-label="关闭" onClick={() => setDrawerOpen(false)}><X /></button></div>
         <div className="drawer-body">
-          {formMeal !== undefined ? <MealEditor key={`${formMeal?.id ?? "new"}-${selectedDate}`} date={selectedDate} meal={formMeal} onCancel={() => setFormMeal(undefined)} onSaved={async () => { await loadMeals(month); setFormMeal(undefined); }} /> : <>
+          {formMeal !== undefined ? <MealEditor key={`${formMeal?.id ?? "new"}-${selectedDate}`} date={selectedDate} meal={formMeal} foods={foods} onCancel={() => setFormMeal(undefined)} onSaved={async () => { await loadMeals(month); setFormMeal(undefined); }} /> : <>
             <div className="drawer-actions"><button className="primary-button" onClick={() => setFormMeal(null)}><Plus size={17} />添加一餐</button><button className="secondary-button" onClick={copyPrevious}><ClipboardCopy size={17} />复制上一餐</button></div>
             {selectedMeals.length ? <div className="meal-card-list">{selectedMeals.map((meal) => <article className="meal-card" key={meal.id}>
               <header><div><span>{meal.plannedTime || "未定时间"}</span><h3>{mealLabel(meal)}</h3></div><span className={`status-badge ${meal.actualStatus}`}>{STATUS_LABELS[meal.actualStatus]}</span></header>
@@ -435,7 +549,7 @@ export function DiaryApp() {
         </div>
       </dialog>
 
-      <dialog ref={settingsRef} className="settings-dialog" onClose={() => setSettingsOpen(false)}><button className="dialog-close icon-button" aria-label="关闭" onClick={() => setSettingsOpen(false)}><X /></button><BabyForm baby={baby} onSaved={(saved) => { setBaby(saved); setSettingsOpen(false); }} /></dialog>
+      <dialog ref={settingsRef} className="settings-dialog" onClose={() => setSettingsOpen(false)}><button className="dialog-close icon-button" aria-label="关闭" onClick={() => setSettingsOpen(false)}><X /></button><div className="settings-scroll"><BabyForm baby={baby} onSaved={setBaby} /><FoodCatalogManager foods={foods} onChanged={setFoods} /><PasswordForm /></div></dialog>
     </main>
   );
 }

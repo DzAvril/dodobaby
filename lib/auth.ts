@@ -1,7 +1,11 @@
 import "server-only";
 
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
+import { getDb } from "@/db";
+import { appSettings } from "@/db/schema";
+import { hashPassword, verifyPasswordHash } from "@/lib/password";
 
 const COOKIE_NAME = "dodobaby_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -16,19 +20,24 @@ function sign(value: string) {
   return createHmac("sha256", secret).update(value).digest("base64url");
 }
 
-export function verifyPassword(password: string): boolean {
-  const encoded = process.env.DODOBABY_PASSWORD_HASH;
+async function getPasswordHash() {
+  const [setting] = await getDb().select().from(appSettings).where(eq(appSettings.key, "password_hash")).limit(1);
+  const encoded = setting?.value ?? process.env.DODOBABY_PASSWORD_HASH;
   if (!encoded) throw new Error("尚未配置 DODOBABY_PASSWORD_HASH");
-  const [algorithm, nText, rText, pText, saltText, hashText] = encoded.split(":");
-  if (algorithm !== "scrypt" || !saltText || !hashText) throw new Error("DODOBABY_PASSWORD_HASH 格式无效");
-  const expected = Buffer.from(hashText, "base64url");
-  const actual = scryptSync(password, Buffer.from(saltText, "base64url"), expected.length, {
-    N: Number(nText),
-    r: Number(rText),
-    p: Number(pText),
-    maxmem: 64 * 1024 * 1024,
-  });
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return encoded;
+}
+
+export async function verifyPassword(password: string) {
+  return verifyPasswordHash(password, await getPasswordHash());
+}
+
+export async function setPassword(password: string) {
+  const now = new Date();
+  const value = hashPassword(password);
+  await getDb()
+    .insert(appSettings)
+    .values({ key: "password_hash", value, updatedAt: now })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: now } });
 }
 
 function createSessionToken() {

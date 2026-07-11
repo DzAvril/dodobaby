@@ -1,4 +1,10 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 export const babies = sqliteTable("babies", {
   id: text("id").primaryKey(),
@@ -57,6 +63,23 @@ export const mealReactionTags = sqliteTable(
   (table) => [index("meal_reaction_tags_meal_idx").on(table.mealId), index("meal_reaction_tags_tag_idx").on(table.tag)],
 );
 
+export const foodCatalogItems = sqliteTable(
+  "food_catalog_items",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    defaultUnit: text("default_unit"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("food_catalog_baby_name_unique").on(table.babyId, table.name),
+    index("food_catalog_baby_idx").on(table.babyId),
+  ],
+);
+
 export type Baby = typeof babies.$inferSelect;
 export type MealEntryRow = typeof mealEntries.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
+export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;

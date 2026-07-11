@@ -8,6 +8,16 @@ export const babySchema = z.object({
   timezone: z.string().trim().min(1).max(80).default("Asia/Shanghai"),
 });
 
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, "请输入当前密码").max(128),
+  newPassword: z.string().min(8, "新密码至少需要 8 个字符").max(128),
+});
+
+export const foodCatalogItemSchema = z.object({
+  name: z.string().trim().min(1, "请输入辅食名称").max(80),
+  defaultUnit: z.string().trim().max(20).nullable().optional(),
+});
+
 export const mealItemSchema = z.object({
   name: z.string().trim().min(1, "请输入食材名称").max(80),
   amount: z.number().nonnegative().max(100000).nullable().optional(),
