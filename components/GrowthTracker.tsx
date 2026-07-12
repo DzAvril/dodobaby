@@ -116,6 +116,7 @@ function GrowthChart({ records, metric, birthDate, sex, rangeMonths }: {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -136,6 +137,11 @@ function GrowthChart({ records, metric, birthDate, sex, rangeMonths }: {
   const previous = effectiveIndex > 0 ? chart.points[effectiveIndex - 1] : null;
   const delta = selected && previous ? selected.value - previous.value : null;
   const selectedReference = selected ? chart.referenceAtDay(selected.ageDay) : null;
+  const hoveredIndex = chart.points.findIndex((point) => point.id === hoveredId);
+  const tooltipPoint = hoveredIndex >= 0 ? chart.points[hoveredIndex] : null;
+  const tooltipReference = tooltipPoint ? chart.referenceAtDay(tooltipPoint.ageDay) : null;
+  const tooltipLeft = tooltipPoint ? Math.min(Math.max(tooltipPoint.x, 128), Math.max(128, chart.width - 128)) : 0;
+  const tooltipTop = tooltipPoint ? Math.max(tooltipPoint.y - 12, chart.padding.top + 4) : 0;
 
   if (!chart.points.length && !chart.referencePoints.length) return <div ref={containerRef} className="growth-chart-empty"><ChartNoAxesCombined /><strong>还没有{config.label}数据</strong><span>添加测量后，这里会形成连续趋势。</span></div>;
 
@@ -147,7 +153,7 @@ function GrowthChart({ records, metric, birthDate, sex, rangeMonths }: {
   return (
     <div className="growth-chart-area">
       {sex && <div className="growth-chart-legend" aria-label="曲线图例"><span className="personal"><i style={{ backgroundColor: config.color }} />宝宝记录</span>{WHO_CURVES.map(({ key, label }) => <span key={key} className={key}><i />WHO {label}</span>)}</div>}
-      <p id="growth-chart-help" className="growth-chart-help">横轴为月龄。点按宝宝曲线圆点，或使用下方按钮查看精确读数。</p>
+      <p id="growth-chart-help" className="growth-chart-help">横轴为月龄。悬停、点按或触摸宝宝曲线圆点可查看实际值与同日龄 WHO 百分位参考。</p>
       <div ref={containerRef} className="growth-chart-scroll">
       <svg className="growth-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} width="100%" height={chart.height} role="img" aria-label={`${config.label}按月龄变化曲线，共 ${chart.points.length} 个宝宝测量点${sex ? `，叠加 WHO ${sex === "female" ? "女童" : "男童"}标准` : ""}`} aria-describedby="growth-chart-help">
         {chart.ageTicks.map(({ month, day }) => <g key={month} className="growth-month-grid"><line x1={chart.xForDay(day)} y1={chart.padding.top} x2={chart.xForDay(day)} y2={chart.height - chart.padding.bottom} /><text x={chart.xForDay(day)} y={chart.height - 10} textAnchor={month === 0 ? "start" : day === chart.rangeDays ? "end" : "middle"}>{monthTickLabel(month)}</text></g>)}
@@ -160,8 +166,14 @@ function GrowthChart({ records, metric, birthDate, sex, rangeMonths }: {
         {WHO_CURVES.map(({ key, label }) => chart.percentilePaths[key] && <path key={key} className={`who-percentile ${key}`} data-percentile={label} d={chart.percentilePaths[key]} />)}
         {chart.referencePoints.length > 0 && WHO_CURVES.map(({ key, label }) => { const last = chart.referencePoints.at(-1)!; return <text key={key} className={`who-percentile-label ${key}`} x={last.x + 5} y={last.y[key] + 3}>{label}</text>; })}
         {chart.points.length > 1 && <path className="growth-personal-path" d={chart.personalPath} fill="none" stroke={config.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />}
-        {chart.points.map((point, index) => <g key={point.id} className={index === effectiveIndex ? "selected" : ""} role="button" tabIndex={0} aria-label={`${point.date}，${formatAge(birthDate, point.date)}，${formatGrowthValue(point.value, metric)}${config.unit}`} onClick={() => choose(index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(index); } }}><circle className="growth-point-hit" cx={point.x} cy={point.y} r="22" /><circle className="growth-point-dot" cx={point.x} cy={point.y} r={index === effectiveIndex ? 7 : 6} fill="#fffdf9" stroke={config.color} strokeWidth="4" /><title>{point.date}（{formatAge(birthDate, point.date)}）：{formatGrowthValue(point.value, metric)}{config.unit}</title></g>)}
+        {chart.points.map((point, index) => <g key={point.id} className={index === effectiveIndex || point.id === hoveredId ? "selected" : ""} role="button" tabIndex={0} aria-label={`${point.date}，${formatAge(birthDate, point.date)}，${formatGrowthValue(point.value, metric)}${config.unit}`} onClick={() => choose(index)} onPointerEnter={() => setHoveredId(point.id)} onPointerLeave={() => setHoveredId((current) => current === point.id ? null : current)} onPointerDown={() => setHoveredId(point.id)} onFocus={() => setHoveredId(point.id)} onBlur={() => setHoveredId((current) => current === point.id ? null : current)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(index); } }}><circle className="growth-point-hit" cx={point.x} cy={point.y} r="22" /><circle className="growth-point-dot" cx={point.x} cy={point.y} r={index === effectiveIndex || point.id === hoveredId ? 7 : 6} fill="#fffdf9" stroke={config.color} strokeWidth="4" /><title>{point.date}（{formatAge(birthDate, point.date)}）：{formatGrowthValue(point.value, metric)}{config.unit}</title></g>)}
       </svg>
+      {tooltipPoint && <div className="growth-point-tooltip" aria-hidden="true" style={{ left: tooltipLeft, top: tooltipTop }}>
+        <strong>{tooltipPoint.date}</strong>
+        <span>{formatAge(birthDate, tooltipPoint.date)}</span>
+        <b>实际 {formatGrowthValue(tooltipPoint.value, metric)} {config.unit}</b>
+        {tooltipReference ? <div>{WHO_CURVES.map(({ key, label }) => <span key={key}>{label} {formatGrowthValue(tooltipReference[key], metric)}</span>)}</div> : <small>设置宝宝性别后显示 WHO Pxx 参考</small>}
+      </div>}
       </div>
       {chart.referenceEndsBeforeRange && <p className="growth-who-limit">WHO 0–5 岁标准曲线在第 1856 天结束，之后仍会继续显示宝宝自己的测量趋势。</p>}
       {chart.hiddenPersonalCount > 0 && <p className="growth-range-note">有 {chart.hiddenPersonalCount} 个测量点超出当前查看范围；选择“全部记录”即可显示。</p>}

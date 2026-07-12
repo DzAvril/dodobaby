@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 const timeSchema = z.union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).optional();
+const MAX_DIAPER_PHOTO_DATA_URL_LENGTH = 1_500_000;
+const diaperPhotoDataUrlSchema = z
+  .string()
+  .max(MAX_DIAPER_PHOTO_DATA_URL_LENGTH, "照片不能超过 1.5MB")
+  .regex(/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+=*$/, "照片格式无效")
+  .nullable()
+  .optional();
 
 export const babySchema = z.object({
   name: z.string().trim().min(1, "请输入宝宝姓名").max(40),
@@ -63,6 +70,7 @@ export const diaperRecordSchema = z
     stoolColor: z.enum(["yellow", "green", "brown", "black", "red", "white", "other"]).nullable().optional(),
     stoolConsistency: z.enum(["watery", "loose", "soft", "formed", "hard", "other"]).nullable().optional(),
     skinObservation: z.enum(["clear", "red", "broken"]).nullable().optional(),
+    photoDataUrl: diaperPhotoDataUrlSchema,
     note: z.string().trim().max(300, "备注不能超过 300 个字符").nullable().optional(),
   })
   .transform((value) => {
@@ -75,6 +83,7 @@ export const diaperRecordSchema = z
       stoolColor: hasStool ? value.stoolColor ?? null : null,
       stoolConsistency: hasStool ? value.stoolConsistency ?? null : null,
       skinObservation: value.skinObservation ?? null,
+      photoDataUrl: value.photoDataUrl || null,
       note: value.note || null,
     };
   });

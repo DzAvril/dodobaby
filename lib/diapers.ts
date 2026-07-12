@@ -16,6 +16,7 @@ function recordValues(babyId: string, input: DiaperRecordInput, now: Date) {
     stoolColor: input.stoolColor,
     stoolConsistency: input.stoolConsistency,
     skinObservation: input.skinObservation,
+    photoDataUrl: input.photoDataUrl,
     note: input.note,
     updatedAt: now,
   };

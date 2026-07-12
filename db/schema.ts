@@ -156,6 +156,7 @@ export const diaperRecords = sqliteTable(
     stoolColor: text("stool_color", { enum: ["yellow", "green", "brown", "black", "red", "white", "other"] }),
     stoolConsistency: text("stool_consistency", { enum: ["watery", "loose", "soft", "formed", "hard", "other"] }),
     skinObservation: text("skin_observation", { enum: ["clear", "red", "broken"] }),
+    photoDataUrl: text("photo_data_url"),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),

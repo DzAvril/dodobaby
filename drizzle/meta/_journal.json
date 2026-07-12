@@ -57,6 +57,13 @@
       "when": 1783812546835,
       "tag": "0007_wooden_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783862533550,
+      "tag": "0008_chemical_felicia_hardy",
+      "breakpoints": true
     }
   ]
 }

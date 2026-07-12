@@ -35,6 +35,9 @@ test("大便预选表单只展开相关观察且皮肤默认未记录", () => {
   assert.match(html, /性状/);
   assert.match(html, /皮肤观察/);
   assert.match(html, /未记录/);
+  assert.match(html, /上传照片/);
+  assert.match(html, /拍照/);
+  assert.match(html, /capture="environment"/);
   assert.match(html, /不作医疗判断/);
   assert.match(html, /maxLength="300"/);
 });

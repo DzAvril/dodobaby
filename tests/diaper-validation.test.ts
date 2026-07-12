@@ -4,6 +4,7 @@ import { validateDiaperDateTime } from "../lib/diaper-validation";
 import { diaperRecordSchema } from "../lib/validation";
 
 const baseRecord = { diaperDate: "2026-07-11", changedTime: "08:30", diaperType: "both" as const };
+const tinyPhoto = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
 
 test("尿布类型和可选观察字段遵守固定边界", () => {
   assert.equal(diaperRecordSchema.safeParse(baseRecord).success, true);
@@ -11,6 +12,8 @@ test("尿布类型和可选观察字段遵守固定边界", () => {
   assert.equal(diaperRecordSchema.safeParse({ ...baseRecord, urineAmount: "huge" }).success, false);
   assert.equal(diaperRecordSchema.safeParse({ ...baseRecord, stoolColor: "purple" }).success, false);
   assert.equal(diaperRecordSchema.safeParse({ ...baseRecord, note: "字".repeat(301) }).success, false);
+  assert.equal(diaperRecordSchema.safeParse({ ...baseRecord, photoDataUrl: tinyPhoto }).success, true);
+  assert.equal(diaperRecordSchema.safeParse({ ...baseRecord, photoDataUrl: "data:text/plain;base64,abc=" }).success, false);
 });
 
 test("类型切换会在服务端清除不适用的隐藏观察", () => {
@@ -21,6 +24,7 @@ test("类型切换会在服务端清除不适用的隐藏观察", () => {
     stoolAmount: "small",
     stoolColor: "yellow",
     stoolConsistency: "soft",
+    photoDataUrl: tinyPhoto,
     note: "  夜间更换  ",
   });
   assert.equal(wet.urineAmount, "large");
@@ -28,6 +32,7 @@ test("类型切换会在服务端清除不适用的隐藏观察", () => {
   assert.equal(wet.stoolColor, null);
   assert.equal(wet.stoolConsistency, null);
   assert.equal(wet.skinObservation, null);
+  assert.equal(wet.photoDataUrl, tinyPhoto);
   assert.equal(wet.note, "夜间更换");
 
   const dirty = diaperRecordSchema.parse({ ...baseRecord, diaperType: "dirty", urineAmount: "medium", stoolAmount: "large" });

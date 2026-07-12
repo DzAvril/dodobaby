@@ -1,0 +1,1 @@
+ALTER TABLE `diaper_records` ADD `photo_data_url` text;

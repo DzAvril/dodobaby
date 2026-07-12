@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Baby, BadgeAlert, ChevronLeft, ChevronRight, CircleDotDashed, Clock3, Droplets, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
+import NextImage from "next/image";
+import { Baby, BadgeAlert, Camera, ChevronLeft, ChevronRight, CircleDotDashed, Clock3, Droplets, ImageIcon, ImagePlus, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { Baby as BabyProfile } from "@/components/DiaryApp";
 import { jsonRequest } from "@/lib/client-api";
 import { addDays, currentMinuteInTimezone, todayInTimezone } from "@/lib/dates";
@@ -24,6 +25,7 @@ export type DiaperRecord = {
   stoolColor: StoolColor | null;
   stoolConsistency: StoolConsistency | null;
   skinObservation: SkinObservation | null;
+  photoDataUrl: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;
@@ -50,9 +52,66 @@ const COLOR_LABELS: Record<StoolColor, string> = { yellow: "黄色", green: "绿
 const CONSISTENCY_LABELS: Record<StoolConsistency, string> = { watery: "水样", loose: "稀软", soft: "糊状", formed: "成形", hard: "干硬", other: "其他" };
 const SKIN_LABELS: Record<SkinObservation, string> = { clear: "未见明显发红", red: "观察到发红", broken: "观察到破损或水疱" };
 const EMPTY_SUMMARY: DiaperDayResponse["summary"] = { totalCount: 0, wetCount: 0, dirtyCount: 0, skinObservedCount: 0, skinConcernCount: 0 };
+const DIAPER_PHOTO_MAX_SOURCE_BYTES = 12 * 1024 * 1024;
+const DIAPER_PHOTO_MAX_DATA_URL_LENGTH = 1_500_000;
+const DIAPER_PHOTO_MAX_EDGE = 1280;
 
 function nullableValue<T extends string>(value: T | "") {
   return value || null;
+}
+
+function loadPhotoElement(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("无法读取这张照片"));
+    image.src = src;
+  });
+}
+
+function drawPhoto(image: HTMLImageElement, width: number, height: number, quality: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前浏览器无法处理照片");
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function compressDiaperPhoto(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("请选择照片文件");
+  if (file.size > DIAPER_PHOTO_MAX_SOURCE_BYTES) throw new Error("照片不能超过 12MB");
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadPhotoElement(objectUrl);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    if (!sourceWidth || !sourceHeight) throw new Error("无法读取这张照片");
+
+    const initialScale = Math.min(1, DIAPER_PHOTO_MAX_EDGE / Math.max(sourceWidth, sourceHeight));
+    let width = Math.max(1, Math.round(sourceWidth * initialScale));
+    let height = Math.max(1, Math.round(sourceHeight * initialScale));
+    let quality = 0.82;
+    let dataUrl = drawPhoto(image, width, height, quality);
+
+    while (dataUrl.length > DIAPER_PHOTO_MAX_DATA_URL_LENGTH && (quality > 0.58 || Math.max(width, height) > 720)) {
+      if (quality > 0.58) {
+        quality = Math.max(0.58, quality - 0.08);
+      } else {
+        width = Math.max(1, Math.round(width * 0.86));
+        height = Math.max(1, Math.round(height * 0.86));
+        quality = 0.72;
+      }
+      dataUrl = drawPhoto(image, width, height, quality);
+    }
+
+    if (dataUrl.length > DIAPER_PHOTO_MAX_DATA_URL_LENGTH) throw new Error("照片压缩后仍过大，请换一张照片");
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function formatDay(date: string) {
@@ -101,13 +160,17 @@ export function DiaperRecordForm({ baby, date, record, preset, onSaved, onCancel
   const [stoolColor, setStoolColor] = useState<StoolColor | "">(record?.stoolColor ?? "");
   const [stoolConsistency, setStoolConsistency] = useState<StoolConsistency | "">(record?.stoolConsistency ?? "");
   const [skinObservation, setSkinObservation] = useState<SkinObservation | "">(record?.skinObservation ?? "");
+  const [photoDataUrl, setPhotoDataUrl] = useState(record?.photoDataUrl ?? "");
   const [note, setNote] = useState(record?.note ?? "");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [photoPending, setPhotoPending] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const today = todayInTimezone(baby.timezone);
   const includesUrine = diaperType === "wet" || diaperType === "both";
   const includesStool = diaperType === "dirty" || diaperType === "both";
-  const canSave = Boolean(diaperDate && changedTime) && !pending;
+  const canSave = Boolean(diaperDate && changedTime) && !pending && !photoPending;
 
   function selectType(nextType: DiaperType) {
     setDiaperType(nextType);
@@ -116,6 +179,21 @@ export function DiaperRecordForm({ baby, date, record, preset, onSaved, onCancel
       setStoolAmount("");
       setStoolColor("");
       setStoolConsistency("");
+    }
+  }
+
+  async function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setPhotoPending(true);
+    setError("");
+    try {
+      setPhotoDataUrl(await compressDiaperPhoto(file));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "照片处理失败，请换一张照片");
+    } finally {
+      setPhotoPending(false);
     }
   }
 
@@ -137,6 +215,7 @@ export function DiaperRecordForm({ baby, date, record, preset, onSaved, onCancel
           stoolColor: includesStool ? nullableValue(stoolColor) : null,
           stoolConsistency: includesStool ? nullableValue(stoolConsistency) : null,
           skinObservation: nullableValue(skinObservation),
+          photoDataUrl: photoDataUrl || null,
           note: note.trim() || null,
         }),
       });
@@ -169,6 +248,17 @@ export function DiaperRecordForm({ baby, date, record, preset, onSaved, onCancel
         {includesStool && <fieldset className="diaper-form-section dirty"><legend><CircleDotDashed />大便观察</legend><div className="diaper-detail-grid"><OptionalSelect label="大便量" value={stoolAmount} options={AMOUNT_LABELS} onChange={setStoolAmount} /><OptionalSelect label="颜色" value={stoolColor} options={COLOR_LABELS} onChange={setStoolColor} /><OptionalSelect label="性状" value={stoolConsistency} options={CONSISTENCY_LABELS} onChange={setStoolConsistency} /></div></fieldset>}
 
         <fieldset className="diaper-form-section skin"><legend><BadgeAlert />皮肤观察 <small>可选</small></legend><div className="diaper-skin-options"><label className={!skinObservation ? "active" : ""}><input type="radio" name="skin-observation" checked={!skinObservation} onChange={() => setSkinObservation("")} /><span>未记录</span></label>{Object.entries(SKIN_LABELS).map(([value, label]) => <label key={value} className={skinObservation === value ? "active" : ""}><input type="radio" name="skin-observation" checked={skinObservation === value} onChange={() => setSkinObservation(value as SkinObservation)} /><span>{label}</span></label>)}</div></fieldset>
+
+        <fieldset className="diaper-form-section photo"><legend><ImageIcon />照片 <small>可选</small></legend>
+          <input ref={uploadInputRef} hidden type="file" accept="image/*" onChange={handlePhotoChange} />
+          <input ref={cameraInputRef} hidden type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} />
+          <div className="diaper-photo-actions">
+            <button type="button" className="secondary-button" disabled={photoPending} onClick={() => uploadInputRef.current?.click()}><ImagePlus />上传照片</button>
+            <button type="button" className="secondary-button" disabled={photoPending} onClick={() => cameraInputRef.current?.click()}><Camera />拍照</button>
+            {photoDataUrl && <button type="button" className="secondary-button danger" disabled={photoPending} onClick={() => setPhotoDataUrl("")}><X />移除</button>}
+          </div>
+          {photoDataUrl ? <NextImage className="diaper-photo-preview" src={photoDataUrl} alt="尿布记录照片预览" width={720} height={480} unoptimized /> : <p className="diaper-photo-hint">{photoPending ? "正在处理照片…" : "照片会压缩后随这条记录保存。"}</p>}
+        </fieldset>
 
         <label className="diaper-note-field"><span>备注 <small>可选</small></span><textarea rows={3} maxLength={300} value={note} onChange={(event) => setNote(event.target.value)} placeholder="只记录家庭观察到的事实" /></label>
         <p className="diaper-medical-note">这里只保存家庭观察，不作医疗判断。若情况持续、令你担心，或宝宝同时明显不适，请联系专业医护人员。</p>
@@ -324,7 +414,7 @@ export function DiaperTracker({ baby }: { baby: BabyProfile }) {
           <div className="diaper-timeline">{records.map((record) => {
             const Icon = typeIcon(record.diaperType);
             const values = observationText(record);
-            return <article key={record.id}><div className="diaper-time"><time dateTime={`${record.diaperDate}T${record.changedTime}`}>{record.changedTime}</time><span aria-hidden="true" /></div><div className={`diaper-record-card ${record.diaperType}`}><header><div className="diaper-record-title"><Icon /><div><strong>{TYPE_LABELS[record.diaperType]}</strong><small>一次换尿布记录</small></div></div><div className="diaper-record-actions"><button type="button" disabled={deletingId !== null} onClick={() => openEditor(record)}><Pencil />编辑</button><button type="button" className="danger" disabled={deletingId !== null} onClick={() => removeRecord(record)}><Trash2 />{deletingId === record.id ? "删除中…" : "删除"}</button></div></header>{values.length > 0 && <div className="diaper-record-values">{values.map((value, index) => <span key={`${index}-${value}`}>{value}</span>)}</div>}{record.skinObservation && <p className={`diaper-skin-note ${record.skinObservation}`}><BadgeAlert />{SKIN_LABELS[record.skinObservation]}</p>}{record.note && (record.note.length > 100 ? <details className="diaper-note"><summary>查看完整备注</summary><p>{record.note}</p></details> : <p className="diaper-note-text">{record.note}</p>)}</div></article>;
+            return <article key={record.id}><div className="diaper-time"><time dateTime={`${record.diaperDate}T${record.changedTime}`}>{record.changedTime}</time><span aria-hidden="true" /></div><div className={`diaper-record-card ${record.diaperType}`}><header><div className="diaper-record-title"><Icon /><div><strong>{TYPE_LABELS[record.diaperType]}</strong><small>一次换尿布记录</small></div></div><div className="diaper-record-actions"><button type="button" disabled={deletingId !== null} onClick={() => openEditor(record)}><Pencil />编辑</button><button type="button" className="danger" disabled={deletingId !== null} onClick={() => removeRecord(record)}><Trash2 />{deletingId === record.id ? "删除中…" : "删除"}</button></div></header>{values.length > 0 && <div className="diaper-record-values">{values.map((value, index) => <span key={`${index}-${value}`}>{value}</span>)}</div>}{record.photoDataUrl && <NextImage className="diaper-record-photo" src={record.photoDataUrl} alt={`${record.changedTime} 的尿布记录照片`} width={720} height={480} unoptimized />}{record.skinObservation && <p className={`diaper-skin-note ${record.skinObservation}`}><BadgeAlert />{SKIN_LABELS[record.skinObservation]}</p>}{record.note && (record.note.length > 100 ? <details className="diaper-note"><summary>查看完整备注</summary><p>{record.note}</p></details> : <p className="diaper-note-text">{record.note}</p>)}</div></article>;
           })}</div>
         </section>
       </>}
