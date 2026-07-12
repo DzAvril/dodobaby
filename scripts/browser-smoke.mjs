@@ -187,6 +187,7 @@ try {
   assert.equal(await page.locator(".growth-chart path[data-percentile]").count(), 5);
   assert.equal(await page.locator(".growth-chart-legend span").count(), 6);
   assert.match(await page.locator(".growth-standard-disclaimer").textContent(), /不表示正常或异常/);
+  await page.locator(".growth-standard-details summary").click();
   assert.equal(await page.getByRole("link", { name: "查看 WHO 官方数据来源" }).isVisible(), true);
 
   await page.getByRole("button", { name: "添加测量" }).click();
