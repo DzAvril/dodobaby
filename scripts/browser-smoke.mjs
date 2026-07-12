@@ -182,14 +182,92 @@ try {
   await page.locator(".growth-state-card.empty").waitFor();
   assert.match(await page.locator(".growth-state-card.empty").textContent(), /记录第一次测量/);
   assert.equal(await growthError.count(), 0);
+  await page.locator(".growth-chart-card").waitFor();
+  assert.match(await page.locator(".growth-standard-status").textContent(), /WHO 女童标准/);
+  assert.equal(await page.locator(".growth-chart path[data-percentile]").count(), 5);
+  assert.equal(await page.locator(".growth-chart-legend span").count(), 6);
+  assert.match(await page.locator(".growth-standard-disclaimer").textContent(), /不表示正常或异常/);
+  assert.equal(await page.getByRole("link", { name: "查看 WHO 官方数据来源" }).isVisible(), true);
 
   await page.getByRole("button", { name: "添加测量" }).click();
   const growthDialog = page.getByRole("dialog", { name: "添加测量" });
-  await growthDialog.locator('input[type="number"]').first().fill("7.3");
+  const firstGrowthDate = shiftDate(today, -30);
+  const growthSave = growthDialog.getByRole("button", { name: "添加记录" });
+  assert.equal(await growthSave.isDisabled(), true);
+  await growthDialog.locator('input[type="date"]').fill(firstGrowthDate);
+  await growthDialog.locator('input[type="number"]').nth(0).fill("7.34");
+  await growthDialog.locator('input[type="number"]').nth(1).fill("68.2");
+  await growthDialog.locator('input[type="number"]').nth(2).fill("42.3");
+  assert.equal(await growthSave.isEnabled(), true);
+  await growthSave.click();
+  await growthDialog.waitFor({ state: "hidden" });
+  const firstGrowthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.34 kg" });
+  await firstGrowthRecord.waitFor();
+
+  const longGrowthNote = "https://example.test/very-long-growth-note-".repeat(6);
+  await page.getByRole("button", { name: "添加测量" }).click();
+  await growthDialog.locator('input[type="number"]').nth(0).fill("7.35");
+  await growthDialog.locator('input[type="number"]').nth(1).fill("68.5");
+  await growthDialog.locator('input[type="number"]').nth(2).fill("42.5");
+  await growthDialog.locator("textarea").fill(longGrowthNote);
   await growthDialog.getByRole("button", { name: "添加记录" }).click();
   await growthDialog.waitFor({ state: "hidden" });
-  const growthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.3 kg" });
-  await growthRecord.waitFor();
+  let currentGrowthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.35 kg" });
+  await currentGrowthRecord.waitFor();
+  assert.equal(await page.locator('.growth-chart g[role="button"]').count(), 2);
+  assert.match(await page.locator(".growth-summary-grid article").filter({ hasText: "体重" }).textContent(), /7\.35 kg[\s\S]*较上次 \+0\.01 kg/);
+  assert.match(await page.locator(".growth-chart-inspector").textContent(), /7\.35 kg[\s\S]*第 2\/2/);
+  assert.equal(await currentGrowthRecord.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true);
+  assert.equal(await currentGrowthRecord.getByRole("button", { name: "编辑" }).isVisible(), true);
+  assert.equal(await currentGrowthRecord.getByRole("button", { name: "删除" }).isVisible(), true);
+
+  await page.getByRole("button", { name: "身长/身高", exact: true }).click();
+  assert.match(await page.locator(".growth-chart-inspector").textContent(), /68\.5 cm/);
+  assert.equal((await page.locator('.growth-chart path[data-percentile="P50"]').getAttribute("d")).match(/M/g)?.length, 2);
+  await page.getByRole("button", { name: "头围", exact: true }).click();
+  assert.match(await page.locator(".growth-chart-inspector").textContent(), /42\.5 cm/);
+  await page.getByRole("button", { name: "体重", exact: true }).click();
+
+  await currentGrowthRecord.getByRole("button", { name: "编辑" }).click();
+  const growthEditDialog = page.getByRole("dialog", { name: "编辑测量" });
+  assert.equal(await growthEditDialog.locator('input[type="number"]').nth(0).inputValue(), "7.35");
+  await growthEditDialog.locator('input[type="number"]').nth(0).fill("7.36");
+  await growthEditDialog.getByRole("button", { name: "保存修改" }).click();
+  await growthEditDialog.waitFor({ state: "hidden" });
+  currentGrowthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.36 kg" });
+  await currentGrowthRecord.waitFor();
+  assert.match(await page.locator(".growth-summary-grid article").filter({ hasText: "体重" }).textContent(), /7\.36 kg[\s\S]*较上次 \+0\.02 kg/);
+
+  const babyResponse = await page.request.get(`${baseUrl}/api/baby`);
+  const babyText = await babyResponse.text();
+  assert.equal(babyResponse.status(), 200, babyText);
+  const babyProfile = JSON.parse(babyText).baby;
+  const updateBabySex = async (sex) => {
+    const response = await page.request.patch(`${baseUrl}/api/baby`, {
+      headers: { origin: new URL(baseUrl).origin },
+      data: { name: babyProfile.name, birthDate: babyProfile.birthDate, timezone: babyProfile.timezone, sex },
+    });
+    assert.equal(response.status(), 200, await response.text());
+  };
+  await updateBabySex("unknown");
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(await page.locator(".growth-chart path[data-percentile]").count(), 0);
+  assert.equal(await page.locator('.growth-chart g[role="button"]').count(), 2);
+  assert.match(await page.locator(".growth-standard-gate").textContent(), /设置性别后显示 WHO 标准曲线/);
+  await updateBabySex("female");
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(await page.locator(".growth-chart path[data-percentile]").count(), 5);
+  assert.equal(await page.locator('.growth-chart g[role="button"]').count(), 2);
+
+  await page.getByRole("button", { name: "添加测量" }).click();
+  await growthDialog.locator('input[type="number"]').nth(0).fill("8.1");
+  await growthDialog.getByRole("button", { name: "添加记录" }).click();
+  const duplicateGrowthError = growthDialog.locator('.form-error[role="alert"]');
+  await duplicateGrowthError.waitFor();
+  assert.match(await duplicateGrowthError.textContent(), /这一天已经有一条生长记录/);
+  assert.equal(await growthDialog.isVisible(), true);
+  await growthDialog.getByRole("button", { name: "关闭" }).click();
+  await growthDialog.waitFor({ state: "hidden" });
 
   await page.route("**/api/growth/*", (route) => {
     if (route.request().method() !== "DELETE") return route.continue();
@@ -200,21 +278,21 @@ try {
     });
   });
   page.once("dialog", (confirmation) => confirmation.accept());
-  await growthRecord.getByRole("button", { name: "删除" }).click();
-  await growthError.waitFor();
-  assert.match(await growthError.textContent(), /模拟生长删除失败/);
-  assert.equal(await growthRecord.count(), 1);
-  assert.equal(await growthRecord.getByRole("button", { name: "删除" }).isEnabled(), true);
+  await currentGrowthRecord.getByRole("button", { name: "删除" }).click();
+  const inlineGrowthError = currentGrowthRecord.locator('.growth-record-error[role="alert"]');
+  await inlineGrowthError.waitFor();
+  assert.match(await inlineGrowthError.textContent(), /模拟生长删除失败/);
+  assert.equal(await growthError.count(), 0);
+  assert.equal(await currentGrowthRecord.count(), 1);
+  assert.equal(await currentGrowthRecord.getByRole("button", { name: "删除" }).isEnabled(), true);
 
   await page.unroute("**/api/growth/*");
-  page.once("dialog", (confirmation) => confirmation.accept());
-  await growthRecord.getByRole("button", { name: "删除" }).click();
-  await page.locator(".growth-state-card.empty").waitFor();
 
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "日常记录" }).waitFor();
   await page.getByRole("heading", { name: "成长与健康" }).waitFor();
   assert.equal(await page.locator(".home-focus-card").count(), 6);
+  assert.equal(await page.locator(".home-focus-grid.daily").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2);
   await page.getByRole("link", { name: /查看睡眠记录/ }).waitFor();
   await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
 
@@ -617,15 +695,44 @@ try {
 
   await mobilePage.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  await mobilePage.locator(".growth-chart-inspector").waitFor();
+  assert.match(await mobilePage.locator(".growth-chart-inspector").textContent(), /7\.36 kg[\s\S]*第 2\/2/);
+  const mobileGrowthChartSize = await mobilePage.locator(".growth-chart-scroll").evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+  assert.ok(mobileGrowthChartSize.scrollWidth <= mobileGrowthChartSize.clientWidth + 1, `mobile growth chart is clipped: ${JSON.stringify(mobileGrowthChartSize)}`);
+  const mobileGrowthChartBounds = await mobilePage.locator(".growth-chart").boundingBox();
+  const latestGrowthPointBounds = await mobilePage.locator(".growth-chart .growth-point-dot").last().boundingBox();
+  assert.ok(mobileGrowthChartBounds && latestGrowthPointBounds && latestGrowthPointBounds.x + latestGrowthPointBounds.width <= mobileGrowthChartBounds.x + mobileGrowthChartBounds.width + 1, `latest growth point is outside the chart: ${JSON.stringify({ mobileGrowthChartBounds, latestGrowthPointBounds })}`);
+  const mobileLongGrowthRecord = mobilePage.locator(".growth-history-list article").filter({ hasText: longGrowthNote });
+  await mobileLongGrowthRecord.waitFor();
+  assert.equal(await mobileLongGrowthRecord.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true);
+  assert.equal(await mobileLongGrowthRecord.getByRole("button", { name: "编辑" }).isVisible(), true);
+  assert.equal(await mobileLongGrowthRecord.getByRole("button", { name: "删除" }).isVisible(), true);
+  assert.match(await mobileLongGrowthRecord.locator("time").textContent(), /月\d+天/);
+  assert.equal(await mobilePage.locator(".growth-chart path[data-percentile]").count(), 5);
+  assert.equal(await mobilePage.getByLabel("选择生长曲线年龄范围").isVisible(), true);
+  await mobilePage.getByRole("button", { name: "身长/身高", exact: true }).click();
+  assert.match(await mobilePage.locator(".growth-chart-inspector").textContent(), /68\.5 cm/);
+  await mobilePage.getByRole("button", { name: "体重", exact: true }).click();
   const mobileGrowthTrigger = mobilePage.getByRole("button", { name: "添加测量" });
   await mobileGrowthTrigger.click();
   const mobileGrowthDialog = mobilePage.getByRole("dialog", { name: "添加测量" });
   const growthBounds = await mobileGrowthDialog.boundingBox();
   assert.ok(growthBounds && Math.abs(growthBounds.y + growthBounds.height - 844) <= 1, `mobile growth dialog is not bottom aligned: ${JSON.stringify(growthBounds)}`);
   assert.ok(growthBounds && Math.abs(growthBounds.width - 390) <= 1, `mobile growth dialog is not full width: ${JSON.stringify(growthBounds)}`);
+  assert.equal(await mobileGrowthDialog.getByRole("button", { name: "添加记录" }).isDisabled(), true);
   await mobileGrowthDialog.getByRole("button", { name: "关闭" }).click();
   await mobileGrowthDialog.waitFor({ state: "hidden" });
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("添加测量"));
+  const growthCleanupResponse = await mobile.request.get(`${baseUrl}/api/growth`);
+  const growthCleanupText = await growthCleanupResponse.text();
+  assert.equal(growthCleanupResponse.status(), 200, growthCleanupText);
+  const growthCleanupRecords = JSON.parse(growthCleanupText).records;
+  for (const record of growthCleanupRecords) {
+    const deletedGrowth = await mobile.request.delete(`${baseUrl}/api/growth/${record.id}`, { headers: { origin: new URL(baseUrl).origin } });
+    assert.equal(deletedGrowth.status(), 200, await deletedGrowth.text());
+  }
 
   await mobilePage.goto(`${baseUrl}/vaccines`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
@@ -652,4 +759,4 @@ try {
   await browser.close();
 }
 
-console.log("Browser smoke passed: sleep, diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: growth, sleep, diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");

@@ -24,7 +24,8 @@ import {
 import { formatAge, getMonthGrid, todayInTimezone } from "@/lib/dates";
 import { jsonRequest } from "@/lib/client-api";
 
-export type Baby = { id: string; name: string; birthDate: string; timezone: string };
+export type BabySex = "male" | "female" | "unknown";
+export type Baby = { id: string; name: string; birthDate: string; sex?: BabySex; timezone: string };
 export type FoodCatalogItem = { id: string; name: string; defaultUnit: string | null };
 type MealItem = {
   id?: string;
@@ -106,6 +107,7 @@ function itemText(item: MealItem) {
 export function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby) => void }) {
   const [name, setName] = useState(baby?.name ?? "");
   const [birthDate, setBirthDate] = useState(baby?.birthDate ?? "");
+  const [sex, setSex] = useState<BabySex>(baby?.sex ?? "unknown");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -117,7 +119,7 @@ export function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby
       const data = await jsonRequest<{ baby: Baby }>("/api/baby", {
         method: baby ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, birthDate, timezone: "Asia/Shanghai" }),
+        body: JSON.stringify({ name, birthDate, sex, timezone: "Asia/Shanghai" }),
       });
       onSaved(data.baby);
     } catch (caught) {
@@ -135,9 +137,10 @@ export function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby
       </div>
       <p className="form-help">出生日期只用于自动计算月龄，不会显示在公开页面。</p>
       <div className="field-grid two-columns">
-        <label><span>宝宝姓名</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} placeholder="例如：朵朵" required autoFocus /></label>
+        <label><span>宝宝姓名</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} placeholder="例如：朵朵" required autoFocus={!baby} /></label>
         <label><span>出生日期</span><input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} max={todayInTimezone()} required /></label>
       </div>
+      <fieldset className="baby-sex-field"><legend>宝宝性别 <small>用于匹配 WHO 标准生长曲线，可暂不设置</small></legend><div className="baby-sex-options">{([['female', '女宝'], ['male', '男宝'], ['unknown', '暂不设置']] as const).map(([value, label]) => <label key={value}><input type="radio" name="baby-sex" value={value} checked={sex === value} onChange={() => setSex(value)} /><span>{label}</span></label>)}</div></fieldset>
       {error && <p className="form-error" role="alert">{error}</p>}
       <button className="primary-button" disabled={pending}>{pending ? "保存中…" : baby ? "保存资料" : "开始记录"}</button>
     </form>

@@ -1,0 +1,1 @@
+ALTER TABLE `babies` ADD `sex` text DEFAULT 'unknown' NOT NULL;

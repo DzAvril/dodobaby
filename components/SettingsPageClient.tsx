@@ -36,7 +36,7 @@ export function SettingsPageClient({ initialBaby }: { initialBaby: Baby }) {
     <div className="module-page settings-page">
       <header className="module-heading"><div><p className="eyebrow">FAMILY SPACE</p><h1>设置</h1><p>宝宝资料、辅食库和家庭安全分别维护，记录内容不会混在一起。</p></div></header>
       <div className="settings-layout">
-        <section className="settings-card"><BabyForm baby={baby} onSaved={(saved) => { setBaby(saved); router.refresh(); }} /></section>
+        <section id="baby-profile" className="settings-card"><BabyForm baby={baby} onSaved={(saved) => { setBaby(saved); router.refresh(); }} /></section>
         <section className="settings-card"><FoodCatalogManager foods={foods} onChanged={setFoods} /></section>
         <section className="settings-card"><PasswordForm /></section>
         <section className="settings-card"><div className="settings-section settings-session"><div className="settings-heading"><h3>当前设备</h3><p>在共用或不再使用的设备上退出家庭空间，不会删除任何记录。</p></div>{logoutError && <p className="form-error" role="alert">{logoutError}</p>}<button type="button" className="secondary-button settings-logout-button" disabled={logoutPending} onClick={logout}><LogOut />{logoutPending ? "正在退出…" : "退出登录"}</button></div></section>

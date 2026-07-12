@@ -11,6 +11,7 @@ export const babies = sqliteTable("babies", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   birthDate: text("birth_date").notNull(),
+  sex: text("sex", { enum: ["male", "female", "unknown"] }).notNull().default("unknown"),
   timezone: text("timezone").notNull().default("Asia/Shanghai"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),

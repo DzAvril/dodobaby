@@ -5,6 +5,13 @@ import { getDb } from "@/db";
 import { growthRecords, type GrowthRecord } from "@/db/schema";
 import type { GrowthRecordInput } from "@/lib/validation";
 
+export function isGrowthDateConflict(error: unknown) {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "SQLITE_CONSTRAINT_UNIQUE";
+}
+
 function recordValues(babyId: string, input: GrowthRecordInput, now: Date) {
   return {
     babyId,

@@ -16,7 +16,7 @@ export async function getCurrentBaby(): Promise<Baby | null> {
   return baby ?? null;
 }
 
-export async function createBaby(input: { name: string; birthDate: string; timezone: string }) {
+export async function createBaby(input: { name: string; birthDate: string; sex: "male" | "female" | "unknown"; timezone: string }) {
   const now = new Date();
   const baby: typeof babies.$inferInsert = {
     id: crypto.randomUUID(),
@@ -29,7 +29,7 @@ export async function createBaby(input: { name: string; birthDate: string; timez
   return baby;
 }
 
-export async function updateBaby(id: string, input: { name: string; birthDate: string; timezone: string }) {
+export async function updateBaby(id: string, input: { name: string; birthDate: string; sex: "male" | "female" | "unknown"; timezone: string }) {
   await getDb().update(babies).set({ ...input, updatedAt: new Date() }).where(eq(babies.id, id));
   return getCurrentBaby();
 }

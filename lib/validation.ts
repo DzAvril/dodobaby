@@ -5,6 +5,7 @@ const timeSchema = z.union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0
 export const babySchema = z.object({
   name: z.string().trim().min(1, "请输入宝宝姓名").max(40),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "出生日期无效"),
+  sex: z.enum(["male", "female", "unknown"]).optional(),
   timezone: z.string().trim().min(1).max(80).default("Asia/Shanghai"),
 });
 

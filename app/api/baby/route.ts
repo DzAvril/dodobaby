@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "宝宝资料无效" }, { status: 400 });
   }
   try {
-    return NextResponse.json({ baby: await createBaby(parsed.data) }, { status: 201 });
+    return NextResponse.json({ baby: await createBaby({ ...parsed.data, sex: parsed.data.sex ?? "unknown" }) }, { status: 201 });
   } catch (error) {
     console.error("Baby profile creation failed", error);
     return NextResponse.json({ error: "保存失败，请稍后重试" }, { status: 500 });
@@ -82,7 +82,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    return NextResponse.json({ baby: await updateBaby(baby.id, parsed.data) });
+    return NextResponse.json({ baby: await updateBaby(baby.id, { ...parsed.data, sex: parsed.data.sex ?? baby.sex }) });
   } catch (error) {
     console.error("Baby profile update failed", error);
     return NextResponse.json({ error: "保存失败，请稍后重试" }, { status: 500 });

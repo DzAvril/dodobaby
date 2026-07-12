@@ -75,6 +75,13 @@ const tomorrow = nextDate.toISOString().slice(0, 10);
 const twoDaysAgo = shiftDate(date, -2);
 const oneMinuteAgo = shiftLocalMinute(date, time, -1);
 expectStatus(await request(`/api/feedings?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated feedings");
+expectStatus(await request("/api/growth", { headers: { cookie: "" } }), 401, "unauthenticated growth records");
+expectStatus(await request("/api/growth/missing-record", {
+  method: "PATCH",
+  headers: { cookie: "", "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: date, weightKg: 7.2 }),
+}), 401, "unauthenticated growth update");
+expectStatus(await request("/api/growth/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated growth delete");
 expectStatus(await request(`/api/diapers?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated diapers");
 expectStatus(await request(`/api/sleeps?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated sleeps");
 expectStatus(await request("/api/sleeps/missing-record", {
@@ -102,6 +109,20 @@ expectStatus(await request("/api/feedings", {
   headers: { "content-type": "application/json", origin: "https://evil.example" },
   body: JSON.stringify({ feedingDate: date, startedTime: time, formulaMl: 60 }),
 }), 403, "cross-origin feeding write");
+expectStatus(await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ measuredDate: date, weightKg: 7.2 }),
+}), 403, "cross-origin growth write");
+expectStatus(await request("/api/growth/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ measuredDate: date, weightKg: 7.2 }),
+}), 403, "cross-origin growth update");
+expectStatus(await request("/api/growth/missing-record", {
+  method: "DELETE",
+  headers: { origin: "https://evil.example" },
+}), 403, "cross-origin growth delete");
 expectStatus(await request("/api/diapers", {
   method: "POST",
   headers: { "content-type": "application/json", origin: "https://evil.example" },
@@ -152,8 +173,76 @@ expectStatus(await request("/api/vaccines/missing-record", {
 expectStatus(await request("/api/baby", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ name: "Smoke Baby", birthDate: "2025-01-01", timezone: "Asia/Shanghai" }),
+  body: JSON.stringify({ name: "Smoke Baby", birthDate: "2025-01-01", sex: "female", timezone: "Asia/Shanghai" }),
 }), 201, "create baby");
+
+let growthRecords = await request("/api/growth");
+expectStatus(growthRecords, 200, "load empty growth records");
+assert.deepEqual(growthRecords.body.records, []);
+expectStatus(await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: "2024-12-31", weightKg: 3.2 }),
+}), 400, "reject growth before birth");
+expectStatus(await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: tomorrow, weightKg: 7.2 }),
+}), 400, "reject future growth date");
+
+const earlierGrowth = await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: yesterday, weightKg: 7.1, note: "早期生长记录" }),
+});
+expectStatus(earlierGrowth, 201, "create earlier growth record");
+const growthBirthDateConflict = await request("/api/baby", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "Smoke Baby", birthDate: date, timezone: "Asia/Shanghai" }),
+});
+expectStatus(growthBirthDateConflict, 400, "protect earliest growth date");
+assert.match(growthBirthDateConflict.body.error, /已有生长记录/);
+expectStatus(await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: yesterday, heightCm: 68 }),
+}), 409, "reject duplicate growth date");
+
+const currentGrowth = await request("/api/growth", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: date, heightCm: 68, headCircumferenceCm: 43 }),
+});
+expectStatus(currentGrowth, 201, "create current growth record");
+growthRecords = await request("/api/growth");
+expectStatus(growthRecords, 200, "load growth records");
+assert.deepEqual(growthRecords.body.records.map((record) => record.measuredDate), [yesterday, date]);
+
+const updatedGrowth = await request(`/api/growth/${currentGrowth.body.record.id}`, {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: date, weightKg: 7.4, heightCm: 69, headCircumferenceCm: 43.5, note: "  更新后的生长记录  " }),
+});
+expectStatus(updatedGrowth, 200, "update growth record");
+assert.equal(updatedGrowth.body.record.weightKg, 7.4);
+assert.equal(updatedGrowth.body.record.heightCm, 69);
+assert.equal(updatedGrowth.body.record.headCircumferenceCm, 43.5);
+assert.equal(updatedGrowth.body.record.note, "更新后的生长记录");
+growthRecords = await request("/api/growth");
+assert.equal(growthRecords.body.records.find((record) => record.id === currentGrowth.body.record.id).weightKg, 7.4);
+
+expectStatus(await request("/api/growth/missing-record", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ measuredDate: date, weightKg: 7.2 }),
+}), 404, "isolate missing growth update");
+expectStatus(await request("/api/growth/missing-record", { method: "DELETE" }), 404, "isolate missing growth delete");
+expectStatus(await request(`/api/growth/${currentGrowth.body.record.id}`, { method: "DELETE" }), 200, "delete current growth record");
+expectStatus(await request(`/api/growth/${earlierGrowth.body.record.id}`, { method: "DELETE" }), 200, "delete earlier growth record");
+expectStatus(await request(`/api/growth/${earlierGrowth.body.record.id}`, { method: "DELETE" }), 404, "delete missing growth record");
+growthRecords = await request("/api/growth");
+assert.equal(growthRecords.body.records.length, 0);
 
 expectStatus(await request(`/api/sleeps?date=${tomorrow}`), 400, "reject future sleep query");
 expectStatus(await request("/api/sleeps", {
@@ -676,4 +765,4 @@ const pdfBytes = Buffer.from(await pdfExport.arrayBuffer());
 assert.equal(pdfBytes.subarray(0, 5).toString("ascii"), "%PDF-");
 assert.ok(pdfBytes.length > 1_000, `PDF export is unexpectedly small: ${pdfBytes.length} bytes`);
 
-console.log("Runtime smoke passed: auth, origin, sleep, diaper, feeding and vaccination CRUD, timeline protection, summaries, and PDF export");
+console.log("Runtime smoke passed: auth, origin, growth, sleep, diaper, feeding and vaccination CRUD, timeline protection, summaries, and PDF export");

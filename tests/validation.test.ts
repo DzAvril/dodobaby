@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { foodCatalogItemSchema, growthRecordSchema, mealSchema, passwordChangeSchema } from "../lib/validation";
+import { babySchema, foodCatalogItemSchema, growthRecordSchema, mealSchema, passwordChangeSchema } from "../lib/validation";
 
 const validMeal = {
   mealDate: "2026-07-10",
@@ -10,6 +10,22 @@ const validMeal = {
   items: [{ name: "高铁米粉", amount: 10, unit: "g", isFirstTry: false }],
   reactionTags: [],
 };
+
+test("宝宝性别只接受 male、female、unknown，并兼容旧请求省略字段", () => {
+  const baby = { name: "DoDo", birthDate: "2026-01-01", timezone: "Asia/Shanghai" };
+  for (const sex of ["male", "female", "unknown"] as const) {
+    const parsed = babySchema.safeParse({ ...baby, sex });
+    assert.equal(parsed.success, true, sex);
+    if (parsed.success) assert.equal(parsed.data.sex, sex);
+  }
+
+  const legacy = babySchema.safeParse(baby);
+  assert.equal(legacy.success, true);
+  if (legacy.success) assert.equal(legacy.data.sex, undefined);
+  for (const sex of ["", "boy", "Male", null, 1]) {
+    assert.equal(babySchema.safeParse({ ...baby, sex }).success, false, String(sex));
+  }
+});
 
 test("接受结构化的辅食餐次", () => {
   assert.equal(mealSchema.safeParse(validMeal).success, true);
