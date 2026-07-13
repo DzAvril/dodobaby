@@ -6,6 +6,7 @@ import { getEarliestFeedingRecordDate } from "@/lib/feedings";
 import { getEarliestVaccinationRecordDate } from "@/lib/vaccines";
 import { getEarliestDiaperRecordDate } from "@/lib/diapers";
 import { getEarliestSleepRecordDate } from "@/lib/sleeps";
+import { getEarliestMedicationDate } from "@/lib/medications";
 import { babySchema } from "@/lib/validation";
 import { parseDate, todayInTimezone } from "@/lib/dates";
 
@@ -53,13 +54,15 @@ export async function PATCH(request: Request) {
   let earliestVaccinationDate: string | null;
   let earliestDiaperDate: string | null;
   let earliestSleepDate: string | null;
+  let earliestMedicationDate: string | null;
   try {
-    [earliestGrowthDate, earliestFeedingDate, earliestVaccinationDate, earliestDiaperDate, earliestSleepDate] = await Promise.all([
+    [earliestGrowthDate, earliestFeedingDate, earliestVaccinationDate, earliestDiaperDate, earliestSleepDate, earliestMedicationDate] = await Promise.all([
       getEarliestGrowthRecordDate(baby.id),
       getEarliestFeedingRecordDate(baby.id),
       getEarliestVaccinationRecordDate(baby.id),
       getEarliestDiaperRecordDate(baby.id),
       getEarliestSleepRecordDate(baby.id),
+      getEarliestMedicationDate(baby.id),
     ]);
   } catch (error) {
     console.error("Baby timeline validation failed", error);
@@ -79,6 +82,9 @@ export async function PATCH(request: Request) {
   }
   if (earliestSleepDate && parsed.data.birthDate > earliestSleepDate) {
     return NextResponse.json({ error: `出生日期不能晚于已有睡眠记录（${earliestSleepDate}）` }, { status: 400 });
+  }
+  if (earliestMedicationDate && parsed.data.birthDate > earliestMedicationDate) {
+    return NextResponse.json({ error: `出生日期不能晚于已有用药记录（${earliestMedicationDate}）` }, { status: 400 });
   }
 
   try {

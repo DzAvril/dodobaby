@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Baby as BabyIcon, CalendarDays, ChartNoAxesCombined, Milk, MoonStar, Syringe, Utensils } from "lucide-react";
+import { ArrowRight, Baby as BabyIcon, CalendarDays, ChartNoAxesCombined, Milk, MoonStar, Pill, Syringe, Utensils } from "lucide-react";
 import type { Baby } from "@/components/DiaryApp";
 import type { FeedingDayResponse } from "@/components/FeedingTracker";
 import type { GrowthRecord } from "@/components/GrowthTracker";
 import type { VaccinationRecord } from "@/components/VaccinationTracker";
 import type { DiaperDayResponse } from "@/components/DiaperTracker";
 import type { SleepDayResponse } from "@/components/SleepTracker";
+import type { MedicationDayResponse } from "@/components/MedicationTracker";
 import { jsonRequest } from "@/lib/client-api";
 import { formatAge, todayInTimezone } from "@/lib/dates";
 
@@ -44,6 +45,7 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
   const [vaccines, setVaccines] = useState<VaccinationRecord[]>([]);
   const [diapers, setDiapers] = useState<DiaperDayResponse | null>(null);
   const [sleep, setSleep] = useState<SleepDayResponse | null>(null);
+  const [medications, setMedications] = useState<MedicationDayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [mealFailed, setMealFailed] = useState(false);
   const [growthFailed, setGrowthFailed] = useState(false);
@@ -51,6 +53,7 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
   const [vaccineFailed, setVaccineFailed] = useState(false);
   const [diaperFailed, setDiaperFailed] = useState(false);
   const [sleepFailed, setSleepFailed] = useState(false);
+  const [medicationFailed, setMedicationFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -61,7 +64,8 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
       jsonRequest<SleepDayResponse>(`/api/sleeps?date=${today}`),
       jsonRequest<DiaperDayResponse>(`/api/diapers?date=${today}`),
       jsonRequest<{ records: VaccinationRecord[] }>("/api/vaccines"),
-    ]).then(([mealResult, growthResult, feedingResult, sleepResult, diaperResult, vaccineResult]) => {
+      jsonRequest<MedicationDayResponse>(`/api/medications?date=${today}`),
+    ]).then(([mealResult, growthResult, feedingResult, sleepResult, diaperResult, vaccineResult, medicationResult]) => {
       if (!active) return;
       if (mealResult.status === "fulfilled") setMeals(mealResult.value.meals);
       else setMealFailed(true);
@@ -75,6 +79,8 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
       else setDiaperFailed(true);
       if (vaccineResult.status === "fulfilled") setVaccines(vaccineResult.value.records);
       else setVaccineFailed(true);
+      if (medicationResult.status === "fulfilled") setMedications(medicationResult.value);
+      else setMedicationFailed(true);
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [today]);
@@ -90,15 +96,18 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
     + (feeding?.summary.sessionCount ?? 0)
     + (sleep?.summary.sessionCount ?? 0)
     + (diapers?.summary.totalCount ?? 0)
+    + (medications?.records.length ?? 0)
     + growth.filter((record) => record.measuredDate === today).length
     + vaccines.filter((record) => record.plannedDate === today || record.administeredDate === today).length;
-  const failedModuleCount = [mealFailed, feedingFailed, sleepFailed, diaperFailed, growthFailed, vaccineFailed].filter(Boolean).length;
+  const failedModuleCount = [mealFailed, feedingFailed, sleepFailed, diaperFailed, medicationFailed, growthFailed, vaccineFailed].filter(Boolean).length;
+  const dueMedicationCount = medications?.duePlans.reduce((count, plan) => count + plan.scheduledTimes.length, 0) ?? 0;
+  const completedMedicationCount = medications?.records.filter((record) => record.planId && record.scheduledTime).length ?? 0;
 
   return (
     <div className="module-page home-page">
       <header className="home-hero">
         <div><p className="eyebrow">TODAY WITH {baby.name.toUpperCase()}</p><h1>今天也一起，<br />好好照顾每个小变化。</h1><p>{baby.name}现在 {formatAge(baby.birthDate, today)}。首页只提供跨模块概览，详细记录分别留在各自页面。</p></div>
-        <div className="home-date-card"><CalendarDays /><span>{today.replaceAll("-", ".")}</span><strong>{loading ? "正在整理今天的照护" : failedModuleCount === 6 ? "今日概览暂时无法加载" : todayActivityCount ? `今天有 ${todayActivityCount} 项照护动态` : failedModuleCount ? "今日动态尚未完整加载" : "今天还没有照护动态"}</strong><small>{failedModuleCount ? `${failedModuleCount} 个模块暂时无法加载` : "六类照护各自在独立页面记录"}</small></div>
+        <div className="home-date-card"><CalendarDays /><span>{today.replaceAll("-", ".")}</span><strong>{loading ? "正在整理今天的照护" : failedModuleCount === 7 ? "今日概览暂时无法加载" : todayActivityCount ? `今天有 ${todayActivityCount} 项照护动态` : failedModuleCount ? "今日动态尚未完整加载" : "今天还没有照护动态"}</strong><small>{failedModuleCount ? `${failedModuleCount} 个模块暂时无法加载` : "七类照护各自在独立页面记录"}</small></div>
       </header>
 
       <section className="home-module-section" aria-labelledby="daily-care-title"><div className="home-section-heading"><p className="eyebrow">DAILY CARE</p><h2 id="daily-care-title">日常记录</h2><span>高频照护，随手记下</span></div><div className="home-focus-grid daily">
@@ -106,6 +115,7 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
         <article className="home-focus-card feeding"><div className="home-card-icon"><Milk /></div><div><span>今日喂养</span><h2>{feedingFailed ? "暂时无法加载" : feeding ? `${feeding.summary.sessionCount} 次记录` : loading ? "正在整理" : "还没有记录"}</h2><p>{feedingFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日喂养记录。" : feeding?.summary.sessionCount ? `亲喂 ${feeding.summary.directMinutes} 分钟 · 瓶喂 ${feeding.summary.bottleMl} ml${feeding.latest ? ` · 最近 ${feeding.latest.startedTime}` : ""}` : "记录亲喂时长、母乳和配方奶量。"}</p></div><Link href="/feeding">查看喂养记录 <ArrowRight /></Link></article>
         <article className={`home-focus-card sleep${sleep?.active ? " active" : ""}`}><div className="home-card-icon"><MoonStar /></div><div><span>今日睡眠</span><h2>{sleepFailed ? "暂时无法加载" : sleep?.active ? "正在睡眠" : sleep ? durationText(sleep.summary.totalMinutes) : loading ? "正在整理" : "还没有记录"}</h2><p>{sleepFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日睡眠记录。" : sleep?.active ? `${sleep.active.startedTime} 开始 · 当前仍在睡眠` : sleep?.summary.sessionCount ? `${sleep.summary.sessionCount} 段 · 最长 ${durationText(sleep.summary.longestMinutes)}` : "记录入睡和醒来，跨午夜会按每天实际时长汇总。"}</p></div><Link href="/sleep">查看睡眠记录 <ArrowRight /></Link></article>
         <article className="home-focus-card diaper"><div className="home-card-icon"><BabyIcon /></div><div><span>今日尿布</span><h2>{diaperFailed ? "暂时无法加载" : diapers ? `${diapers.summary.totalCount} 次记录` : loading ? "正在整理" : "还没有记录"}</h2><p>{diaperFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日尿布记录。" : diapers?.summary.totalCount ? `小便 ${diapers.summary.wetCount} 次 · 大便 ${diapers.summary.dirtyCount} 次${diapers.latest ? ` · 最近 ${diapers.latest.changedTime}` : ""}` : "记录小便、大便与换尿布时的观察。"}</p></div><Link href="/diapers">查看尿布记录 <ArrowRight /></Link></article>
+        <article className="home-focus-card medication"><div className="home-card-icon"><Pill /></div><div><span>今日用药</span><h2>{medicationFailed ? "暂时无法加载" : loading ? "正在整理" : dueMedicationCount ? `${completedMedicationCount}/${dueMedicationCount} 已登记` : medications?.records.length ? `${medications.records.length} 次记录` : "没有计划"}</h2><p>{medicationFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日用药安排。" : dueMedicationCount ? `今天有 ${dueMedicationCount} 个计划时间点。` : medications?.records.length ? "今天有临时用药记录。" : "按频率安排并登记实际用药。"}</p></div><Link href="/medications">查看用药记录 <ArrowRight /></Link></article>
       </div></section>
 
       <section className="home-module-section" aria-labelledby="health-records-title"><div className="home-section-heading"><p className="eyebrow">HEALTH RECORDS</p><h2 id="health-records-title">成长与健康</h2><span>低频档案，长期留存</span></div><div className="home-focus-grid health">

@@ -174,6 +174,73 @@ export const vaccinationRecordSchema = z
     administrationSite: null,
   } : value);
 
+const medicationDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期无效");
+const medicationTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "时间无效");
+const optionalMedicationDateSchema = z
+  .union([z.literal(""), medicationDateSchema])
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+const optionalMedicationTextSchema = (max: number, message: string) => z
+  .string()
+  .trim()
+  .max(max, message)
+  .nullable()
+  .optional()
+  .transform((value) => value || null);
+
+export const medicationPlanSchema = z
+  .object({
+    medicationName: z.string().trim().min(1, "请输入药品名称").max(80, "药品名称不能超过 80 个字符"),
+    doseAmount: z.number().positive("用药量必须大于 0").max(100000, "用药量过大"),
+    doseUnit: z.string().trim().min(1, "请输入用药单位").max(20, "用药单位不能超过 20 个字符"),
+    intervalDays: z.number().int("间隔天数必须是整数").min(1, "间隔天数不能小于 1").max(30, "间隔天数不能大于 30"),
+    scheduledTimes: z.array(medicationTimeSchema).min(1, "至少设置一个用药时间").max(6, "每天最多设置 6 个用药时间"),
+    startDate: medicationDateSchema,
+    endDate: optionalMedicationDateSchema,
+    note: optionalMedicationTextSchema(500, "备注不能超过 500 个字符"),
+  })
+  .superRefine((value, ctx) => {
+    if (new Set(value.scheduledTimes).size !== value.scheduledTimes.length) {
+      ctx.addIssue({ code: "custom", message: "用药时间不能重复", path: ["scheduledTimes"] });
+    }
+    if (value.endDate && value.endDate < value.startDate) {
+      ctx.addIssue({ code: "custom", message: "结束日期不能早于开始日期", path: ["endDate"] });
+    }
+  })
+  .transform((value) => ({ ...value, scheduledTimes: [...value.scheduledTimes].sort() }));
+
+export const medicationRecordSchema = z
+  .object({
+    planId: z.string().uuid("用药计划无效").nullable().optional().transform((value) => value || null),
+    scheduledTime: medicationTimeSchema.nullable().optional().transform((value) => value || null),
+    medicationName: optionalMedicationTextSchema(80, "药品名称不能超过 80 个字符"),
+    doseAmount: z.number().positive("用药量必须大于 0").max(100000, "用药量过大").nullable().optional(),
+    doseUnit: optionalMedicationTextSchema(20, "用药单位不能超过 20 个字符"),
+    takenDate: medicationDateSchema,
+    takenTime: medicationTimeSchema,
+    note: optionalMedicationTextSchema(500, "备注不能超过 500 个字符"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.planId && !value.scheduledTime) {
+      ctx.addIssue({ code: "custom", message: "请选择计划中的用药时间", path: ["scheduledTime"] });
+    }
+    if (!value.planId && !value.medicationName) {
+      ctx.addIssue({ code: "custom", message: "请输入药品名称", path: ["medicationName"] });
+    }
+    if (!value.planId && value.doseAmount == null) {
+      ctx.addIssue({ code: "custom", message: "请输入用药量", path: ["doseAmount"] });
+    }
+    if (!value.planId && !value.doseUnit) {
+      ctx.addIssue({ code: "custom", message: "请输入用药单位", path: ["doseUnit"] });
+    }
+  });
+
+export const quickModulesSchema = z
+  .array(z.enum(["food", "feeding", "sleep", "diapers", "medications", "growth", "vaccines"]))
+  .length(3, "请选择 3 个高频模块")
+  .refine((items) => new Set(items).size === items.length, "高频模块不能重复");
+
 export const mealItemSchema = z.object({
   name: z.string().trim().min(1, "请输入食材名称").max(80),
   amount: z.number().nonnegative().max(100000).nullable().optional(),
@@ -208,5 +275,7 @@ export type MealInput = z.infer<typeof mealSchema>;
 export type GrowthRecordInput = z.infer<typeof growthRecordSchema>;
 export type FeedingRecordInput = z.infer<typeof feedingRecordSchema>;
 export type VaccinationRecordInput = z.infer<typeof vaccinationRecordSchema>;
+export type MedicationPlanInput = z.infer<typeof medicationPlanSchema>;
+export type MedicationRecordInput = z.infer<typeof medicationRecordSchema>;
 export type DiaperRecordInput = z.infer<typeof diaperRecordSchema>;
 export type SleepRecordInput = z.infer<typeof sleepRecordSchema>;

@@ -102,18 +102,23 @@ test("长疫苗备注默认折叠且仍可展开查看完整内容", () => {
   assert.match(longNote, new RegExp(longText));
 });
 
-test("桌面七个模块与手机五项稳定导航保持隔离", () => {
+test("桌面全模块与手机三个可配置高频位置保持隔离", () => {
   const shellSource = readFileSync(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
+  const navigationSource = readFileSync(new URL("../components/navigation-config.ts", import.meta.url), "utf8");
+  const preferencesSource = readFileSync(new URL("../lib/navigation-preferences.ts", import.meta.url), "utf8");
   const homeSource = readFileSync(new URL("../components/HomeDashboard.tsx", import.meta.url), "utf8");
   const moreSource = readFileSync(new URL("../app/(care)/more/page.tsx", import.meta.url), "utf8");
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  const coreNavSource = shellSource.match(/const NAV_ITEMS = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
 
-  assert.equal((coreNavSource.match(/href:/g) ?? []).length, 7);
-  assert.match(coreNavSource, /href: "\/sleep"/);
-  assert.match(coreNavSource, /href: "\/diapers"/);
-  assert.match(coreNavSource, /href: "\/vaccines"/);
-  assert.doesNotMatch(coreNavSource, /href: "\/settings"/);
+  const moduleItemsSource = navigationSource.match(/export const MODULE_NAV_ITEMS[\s\S]*?\n\];/)?.[0] ?? "";
+  assert.equal((moduleItemsSource.match(/href:/g) ?? []).length, 7);
+  assert.match(navigationSource, /href: "\/sleep"/);
+  assert.match(navigationSource, /href: "\/diapers"/);
+  assert.match(navigationSource, /href: "\/medications"/);
+  assert.match(navigationSource, /href: "\/vaccines"/);
+  assert.doesNotMatch(navigationSource, /href: "\/settings"/);
+  assert.match(preferencesSource, /\["feeding", "sleep", "diapers"\]/);
+  assert.match(shellSource, /mobileItems = \[HOME_ITEM, \.\.\.quickItems, MORE_ITEM\]/);
   assert.match(homeSource, /Promise\.allSettled/);
   assert.match(homeSource, /jsonRequest<\{ records: VaccinationRecord\[\] \}>\("\/api\/vaccines"\)/);
   assert.match(homeSource, /vaccineFailed/);
@@ -121,14 +126,11 @@ test("桌面七个模块与手机五项稳定导航保持隔离", () => {
   assert.match(homeSource, /diaperFailed/);
   assert.match(homeSource, /jsonRequest<SleepDayResponse>\(`\/api\/sleeps\?date=\$\{today\}`\)/);
   assert.match(homeSource, /sleepFailed/);
-  assert.equal((homeSource.match(/home-focus-card/g) ?? []).length, 6);
+  assert.equal((homeSource.match(/home-focus-card/g) ?? []).length, 7);
   assert.doesNotMatch(homeSource, /className="module-card"/);
-  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/feeding"\)/);
-  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/sleep"\)/);
-  assert.match(shellSource, /NAV_ITEMS\.find\(\(item\) => item\.href === "\/diapers"\)/);
-  assert.match(moreSource, /href: "\/food"/);
-  assert.match(moreSource, /成长与健康/);
-  assert.match(shellSource, /isMoreActive/);
+  assert.match(shellSource, /quickModules\.map\(navigationItem\)/);
+  assert.match(moreSource, /MODULE_NAV_ITEMS\.filter/);
+  assert.match(moreSource, /未固定在手机底栏的模块/);
   assert.match(styles, /grid-template-columns: repeat\(5, 1fr\)/);
   assert.match(styles, /padding-bottom: calc\(24px \+ env\(safe-area-inset-bottom\)\)/);
 });

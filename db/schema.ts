@@ -143,6 +143,51 @@ export const vaccinationRecords = sqliteTable(
   ],
 );
 
+export const medicationPlans = sqliteTable(
+  "medication_plans",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    medicationName: text("medication_name").notNull(),
+    doseAmount: real("dose_amount").notNull(),
+    doseUnit: text("dose_unit").notNull(),
+    intervalDays: integer("interval_days").notNull().default(1),
+    scheduledTimes: text("scheduled_times").notNull(),
+    startDate: text("start_date").notNull(),
+    endDate: text("end_date"),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("medication_plans_baby_start_date_idx").on(table.babyId, table.startDate),
+    check("medication_plans_interval_days_range", sql`${table.intervalDays} BETWEEN 1 AND 30`),
+    check("medication_plans_date_range", sql`${table.endDate} IS NULL OR ${table.endDate} >= ${table.startDate}`),
+  ],
+);
+
+export const medicationRecords = sqliteTable(
+  "medication_records",
+  {
+    id: text("id").primaryKey(),
+    babyId: text("baby_id").notNull().references(() => babies.id, { onDelete: "cascade" }),
+    planId: text("plan_id").references(() => medicationPlans.id, { onDelete: "set null" }),
+    medicationName: text("medication_name").notNull(),
+    doseAmount: real("dose_amount").notNull(),
+    doseUnit: text("dose_unit").notNull(),
+    takenDate: text("taken_date").notNull(),
+    scheduledTime: text("scheduled_time"),
+    takenTime: text("taken_time").notNull(),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("medication_records_baby_date_time_idx").on(table.babyId, table.takenDate, table.takenTime),
+    uniqueIndex("medication_records_plan_date_time_unique").on(table.planId, table.takenDate, table.scheduledTime),
+  ],
+);
+
 export const diaperRecords = sqliteTable(
   "diaper_records",
   {
@@ -193,5 +238,7 @@ export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;
 export type GrowthRecord = typeof growthRecords.$inferSelect;
 export type FeedingRecord = typeof feedingRecords.$inferSelect;
 export type VaccinationRecord = typeof vaccinationRecords.$inferSelect;
+export type MedicationPlanRow = typeof medicationPlans.$inferSelect;
+export type MedicationRecord = typeof medicationRecords.$inferSelect;
 export type DiaperRecord = typeof diaperRecords.$inferSelect;
 export type SleepRecord = typeof sleepRecords.$inferSelect;
