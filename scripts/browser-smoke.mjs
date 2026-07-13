@@ -292,7 +292,7 @@ try {
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "日常记录" }).waitFor();
   await page.getByRole("heading", { name: "成长与健康" }).waitFor();
-  assert.equal(await page.locator(".home-focus-card").count(), 6);
+  assert.equal(await page.locator(".home-focus-card").count(), 7);
   assert.equal(await page.locator(".home-focus-grid.daily").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2);
   await page.getByRole("link", { name: /查看睡眠记录/ }).waitFor();
   await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
@@ -689,8 +689,8 @@ try {
 
   await mobilePage.goto(`${baseUrl}/more`, { waitUntil: "networkidle" });
   await mobilePage.getByRole("heading", { name: "更多功能" }).waitFor();
-  assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["辅食日记辅食计划、食材与实际反馈", "生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、密码与辅食库"]);
-  assert.deepEqual(await mobilePage.locator(".more-section-heading h2").allTextContents(), ["日常记录", "成长与健康", "家庭空间"]);
+  assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["辅食日记计划、食材与实际反馈", "用药记录计划、剂量与实际服用", "生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、导航、密码与辅食库"]);
+  assert.deepEqual(await mobilePage.locator(".more-section-heading h2").allTextContents(), ["其他记录", "家庭空间"]);
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
 
