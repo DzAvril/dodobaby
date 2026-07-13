@@ -102,6 +102,21 @@ export async function getMedicationRecord(id: string, babyId: string): Promise<M
 }
 
 export async function createMedicationRecord(babyId: string, input: MedicationRecordInput) {
+  const values = await medicationRecordValues(babyId, input);
+  const id = crypto.randomUUID();
+  const now = new Date();
+  try {
+    await getDb().insert(medicationRecords).values({ id, ...values, createdAt: now, updatedAt: now });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "SQLITE_CONSTRAINT_UNIQUE") {
+      throw new MedicationOccurrenceConflictError("这次计划用药已经登记过了");
+    }
+    throw error;
+  }
+  return getMedicationRecord(id, babyId);
+}
+
+async function medicationRecordValues(babyId: string, input: MedicationRecordInput) {
   const plan = input.planId ? await getMedicationPlan(input.planId, babyId) : null;
   if (input.planId && !plan) throw new Error("用药计划不存在");
   if (plan && input.scheduledTime) validateMedicationOccurrence(plan, input.takenDate, input.scheduledTime);
@@ -111,23 +126,27 @@ export async function createMedicationRecord(babyId: string, input: MedicationRe
   const doseUnit = plan?.doseUnit ?? input.doseUnit;
   if (!medicationName || doseAmount == null || !doseUnit) throw new Error("请完整填写药品和用药量");
 
-  const id = crypto.randomUUID();
-  const now = new Date();
+  return {
+    babyId,
+    planId: plan?.id ?? null,
+    medicationName,
+    doseAmount,
+    doseUnit,
+    takenDate: input.takenDate,
+    scheduledTime: plan ? input.scheduledTime : null,
+    takenTime: input.takenTime,
+    note: input.note,
+  };
+}
+
+export async function updateMedicationRecord(id: string, babyId: string, input: MedicationRecordInput) {
+  if (!(await getMedicationRecord(id, babyId))) return null;
+  const values = await medicationRecordValues(babyId, input);
   try {
-    await getDb().insert(medicationRecords).values({
-      id,
-      babyId,
-      planId: plan?.id ?? null,
-      medicationName,
-      doseAmount,
-      doseUnit,
-      takenDate: input.takenDate,
-      scheduledTime: plan ? input.scheduledTime : null,
-      takenTime: input.takenTime,
-      note: input.note,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await getDb()
+      .update(medicationRecords)
+      .set({ ...values, updatedAt: new Date() })
+      .where(and(eq(medicationRecords.id, id), eq(medicationRecords.babyId, babyId)));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "SQLITE_CONSTRAINT_UNIQUE") {
       throw new MedicationOccurrenceConflictError("这次计划用药已经登记过了");

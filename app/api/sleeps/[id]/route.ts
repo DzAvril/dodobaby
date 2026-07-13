@@ -15,6 +15,14 @@ import { sleepRecordSchema } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
 
+export async function GET(_request: Request, { params }: Context) {
+  if (!(await isAuthenticated())) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  const baby = await getCurrentBaby();
+  if (!baby) return NextResponse.json({ error: "宝宝资料不存在" }, { status: 404 });
+  const record = getSleepRecord((await params).id, baby.id);
+  return record ? NextResponse.json({ record: serializeSleepRecord(record) }) : NextResponse.json({ error: "记录不存在" }, { status: 404 });
+}
+
 export async function PATCH(request: Request, { params }: Context) {
   if (!(await isAuthenticated())) return NextResponse.json({ error: "请先登录" }, { status: 401 });
   if (!isSameOrigin(request)) return NextResponse.json({ error: "请求来源无效" }, { status: 403 });

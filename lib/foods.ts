@@ -22,6 +22,24 @@ export async function createFoodCatalogItem(babyId: string, input: { name: strin
   return item;
 }
 
+export async function getFoodCatalogItem(id: string, babyId: string) {
+  const [item] = await getDb()
+    .select()
+    .from(foodCatalogItems)
+    .where(and(eq(foodCatalogItems.id, id), eq(foodCatalogItems.babyId, babyId)))
+    .limit(1);
+  return item ?? null;
+}
+
+export async function updateFoodCatalogItem(id: string, babyId: string, input: { name: string; defaultUnit?: string | null }) {
+  if (!(await getFoodCatalogItem(id, babyId))) return null;
+  await getDb()
+    .update(foodCatalogItems)
+    .set({ name: input.name, defaultUnit: input.defaultUnit || null, updatedAt: new Date() })
+    .where(and(eq(foodCatalogItems.id, id), eq(foodCatalogItems.babyId, babyId)));
+  return getFoodCatalogItem(id, babyId);
+}
+
 export async function deleteFoodCatalogItem(id: string, babyId: string) {
   const result = await getDb().delete(foodCatalogItems).where(and(eq(foodCatalogItems.id, id), eq(foodCatalogItems.babyId, babyId))).run();
   return result.changes > 0;

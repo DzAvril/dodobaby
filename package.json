@@ -12,9 +12,12 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "password:hash": "node scripts/hash-password.mjs"
+    "password:hash": "node scripts/hash-password.mjs",
+    "agent:token": "node scripts/hash-agent-token.mjs",
+    "mcp:dodobaby": "tsx scripts/dodobaby-mcp.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.24.0",

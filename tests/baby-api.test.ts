@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const sessionSecret = "baby-api-test-session-secret-123456789";
+const agentToken = "baby-api-test-agent-token-123456789";
+const agentTokenHash = createHash("sha256").update(agentToken).digest("hex");
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -46,6 +50,7 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
+  let mcpClient: Client | null = null;
   const child = spawn(process.execPath, [nextBin, "dev", "--webpack", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: process.cwd(),
     env: {
@@ -55,6 +60,7 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
       WATCHPACK_POLLING: "true",
       DATABASE_PATH: databasePath,
       DODOBABY_SESSION_SECRET: sessionSecret,
+      DODOBABY_AGENT_TOKEN_SHA256: agentTokenHash,
       APP_URL: baseUrl,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -64,6 +70,7 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   child.stdout?.on("data", capture);
   child.stderr?.on("data", capture);
   context.after(async () => {
+    await mcpClient?.close().catch(() => undefined);
     await stopServer(child);
     rmSync(directory, { recursive: true, force: true });
   });
@@ -89,6 +96,14 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
     const body = await response.json().catch(() => null) as { error?: string; baby?: { sex: string } } | null;
     return { response, body };
   }
+  async function agentRequest(route: string, init: RequestInit = {}) {
+    const response = await fetch(`${baseUrl}${route}`, {
+      ...init,
+      headers: { authorization: `Bearer ${agentToken}`, "content-type": "application/json", origin: "https://agent.example", ...init.headers },
+    });
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    return { response, body };
+  }
   const baby = { name: "API Baby", birthDate: "2025-01-01", timezone: "Asia/Shanghai" };
 
   assert.equal((await request("/api/baby", { headers: { cookie: "" } })).response.status, 401);
@@ -111,6 +126,170 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   assert.equal(created.response.status, 201, JSON.stringify(created.body));
   assert.equal(created.body?.baby?.sex, "unknown");
   assert.equal((await request("/api/baby")).body?.baby?.sex, "unknown");
+
+  const agentRead = await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${agentToken}` } });
+  assert.equal(agentRead.status, 200, await agentRead.text());
+
+  const invalidAgentRead = await fetch(`${baseUrl}/api/baby`, { headers: { authorization: "Bearer wrong-token" } });
+  assert.equal(invalidAgentRead.status, 401);
+
+  const agentPatch = await fetch(`${baseUrl}/api/baby`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${agentToken}`,
+      "content-type": "application/json",
+      origin: "https://evil.example",
+    },
+    body: JSON.stringify({ ...baby, sex: "male" }),
+  });
+  assert.equal(agentPatch.status, 200, await agentPatch.text());
+  assert.equal((await request("/api/baby")).body?.baby?.sex, "male");
+
+  const createdFood = await agentRequest("/api/foods", {
+    method: "POST",
+    body: JSON.stringify({ name: "苹果泥", defaultUnit: "g" }),
+  });
+  assert.equal(createdFood.response.status, 201, JSON.stringify(createdFood.body));
+  const foodId = (createdFood.body?.food as { id?: string } | undefined)?.id;
+  assert.ok(foodId);
+  assert.equal((await agentRequest(`/api/foods/${foodId}`)).response.status, 200);
+  const updatedFood = await agentRequest(`/api/foods/${foodId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name: "苹果泥", defaultUnit: "勺" }),
+  });
+  assert.equal(updatedFood.response.status, 200, JSON.stringify(updatedFood.body));
+  assert.equal((updatedFood.body?.food as { defaultUnit?: string } | undefined)?.defaultUnit, "勺");
+  assert.equal((await agentRequest(`/api/foods/${foodId}`, { method: "DELETE" })).response.status, 200);
+
+  const medicationPayload = { medicationName: "维生素 D3", doseAmount: 1, doseUnit: "滴", takenDate: "2025-01-01", takenTime: "09:00" };
+  const createdMedication = await agentRequest("/api/medications", {
+    method: "POST",
+    body: JSON.stringify(medicationPayload),
+  });
+  assert.equal(createdMedication.response.status, 201, JSON.stringify(createdMedication.body));
+  const medicationId = (createdMedication.body?.record as { id?: string } | undefined)?.id;
+  assert.ok(medicationId);
+  assert.equal((await agentRequest(`/api/medications/${medicationId}`)).response.status, 200);
+  const updatedMedication = await agentRequest(`/api/medications/${medicationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ ...medicationPayload, doseAmount: 2, takenTime: "09:05" }),
+  });
+  assert.equal(updatedMedication.response.status, 200, JSON.stringify(updatedMedication.body));
+  assert.equal((updatedMedication.body?.record as { doseAmount?: number } | undefined)?.doseAmount, 2);
+  assert.equal((await agentRequest(`/api/medications/${medicationId}`, { method: "DELETE" })).response.status, 200);
+
+  const mcpTransport = new StdioClientTransport({
+    command: path.join(process.cwd(), "node_modules", ".bin", "tsx"),
+    args: [path.join(process.cwd(), "scripts", "dodobaby-mcp.ts")],
+    env: { ...process.env, DODOBABY_APP_URL: baseUrl, DODOBABY_AGENT_TOKEN: agentToken },
+  });
+  mcpClient = new Client({ name: "dodobaby-api-test", version: "0.0.0" });
+  await mcpClient.connect(mcpTransport);
+  const tools = await mcpClient.listTools();
+  assert.ok(tools.tools.some((tool) => tool.name === "dodobaby_create_record"));
+
+  async function callMcp(name: string, args: Record<string, unknown> = {}) {
+    assert.ok(mcpClient);
+    const result = await mcpClient.callTool({ name, arguments: args });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    assert.equal(content[0]?.type, "text");
+    return JSON.parse(content[0]?.text ?? "null") as Record<string, unknown>;
+  }
+  function recordFrom(body: Record<string, unknown>) {
+    return (body.record ?? body.meal ?? body.food ?? body.plan) as { id?: string } | undefined;
+  }
+
+  const mcpContracts = await callMcp("dodobaby_record_contracts");
+  assert.deepEqual(mcpContracts.recordTypes, [
+    "meals",
+    "food_catalog",
+    "feedings",
+    "diapers",
+    "sleeps",
+    "growth",
+    "vaccines",
+    "medication_plans",
+    "medication_records",
+  ]);
+
+  const mcpCases = [
+    {
+      recordType: "food_catalog",
+      create: { name: "香蕉泥", defaultUnit: "g" },
+      update: { name: "香蕉泥", defaultUnit: "勺" },
+      listQuery: {},
+    },
+    {
+      recordType: "meals",
+      create: {
+        mealDate: "2025-01-02",
+        mealType: "lunch",
+        actualStatus: "completed",
+        items: [{ name: "香蕉泥", amount: 10, unit: "g", isFirstTry: true }],
+        reactionTags: ["normal"],
+      },
+      update: {
+        mealDate: "2025-01-02",
+        mealType: "lunch",
+        actualStatus: "completed",
+        actualNote: "MCP updated",
+        items: [{ name: "香蕉泥", amount: 12, unit: "g", isFirstTry: true }],
+        reactionTags: ["liked"],
+      },
+      listQuery: { month: "2025-01" },
+    },
+    {
+      recordType: "feedings",
+      create: { feedingDate: "2025-01-02", startedTime: "08:00", formulaMl: 60 },
+      update: { feedingDate: "2025-01-02", startedTime: "08:00", formulaMl: 70 },
+      listQuery: { date: "2025-01-02" },
+    },
+    {
+      recordType: "diapers",
+      create: { diaperDate: "2025-01-02", changedTime: "09:00", diaperType: "wet", urineAmount: "medium" },
+      update: { diaperDate: "2025-01-02", changedTime: "09:00", diaperType: "wet", urineAmount: "large" },
+      listQuery: { date: "2025-01-02" },
+    },
+    {
+      recordType: "sleeps",
+      create: { startedDate: "2025-01-02", startedTime: "10:00", endedDate: "2025-01-02", endedTime: "11:00" },
+      update: { startedDate: "2025-01-02", startedTime: "10:00", endedDate: "2025-01-02", endedTime: "11:00", note: "MCP updated" },
+      listQuery: { date: "2025-01-02" },
+    },
+    {
+      recordType: "growth",
+      create: { measuredDate: "2025-01-02", weightKg: 3.2 },
+      update: { measuredDate: "2025-01-02", weightKg: 3.3 },
+      listQuery: {},
+    },
+    {
+      recordType: "vaccines",
+      create: { vaccineName: "乙肝", doseNumber: 1, category: "immunization_program", status: "completed", administeredDate: "2025-01-02" },
+      update: { vaccineName: "乙肝", doseNumber: 1, category: "immunization_program", status: "completed", administeredDate: "2025-01-02", note: "MCP updated" },
+      listQuery: {},
+    },
+    {
+      recordType: "medication_plans",
+      create: { medicationName: "维生素 D3", doseAmount: 1, doseUnit: "滴", intervalDays: 1, scheduledTimes: ["08:00"], startDate: "2025-01-02" },
+      update: { medicationName: "维生素 D3", doseAmount: 1, doseUnit: "滴", intervalDays: 1, scheduledTimes: ["08:00"], startDate: "2025-01-02", note: "MCP updated" },
+      listQuery: {},
+    },
+    {
+      recordType: "medication_records",
+      create: { medicationName: "维生素 D3", doseAmount: 1, doseUnit: "滴", takenDate: "2025-01-02", takenTime: "08:10" },
+      update: { medicationName: "维生素 D3", doseAmount: 2, doseUnit: "滴", takenDate: "2025-01-02", takenTime: "08:20" },
+      listQuery: { date: "2025-01-02" },
+    },
+  ];
+
+  for (const item of mcpCases) {
+    const createdRecord = recordFrom(await callMcp("dodobaby_create_record", { recordType: item.recordType, payload: item.create }));
+    assert.ok(createdRecord?.id, `${item.recordType} create should return id`);
+    assert.ok(recordFrom(await callMcp("dodobaby_get_record", { recordType: item.recordType, id: createdRecord.id })));
+    assert.ok(recordFrom(await callMcp("dodobaby_update_record", { recordType: item.recordType, id: createdRecord.id, payload: item.update })));
+    await callMcp("dodobaby_list_records", { recordType: item.recordType, query: item.listQuery });
+    assert.deepEqual(await callMcp("dodobaby_delete_record", { recordType: item.recordType, id: createdRecord.id }), { ok: true });
+  }
 
   const male = await request("/api/baby", {
     method: "PATCH",

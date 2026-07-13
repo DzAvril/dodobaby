@@ -1,8 +1,8 @@
 import "server-only";
 
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getDb } from "@/db";
 import { appSettings } from "@/db/schema";
 import { hashPassword, verifyPasswordHash } from "@/lib/password";
@@ -18,6 +18,27 @@ function sign(value: string) {
   const secret = process.env.DODOBABY_SESSION_SECRET;
   if (!secret || secret.length < 32) throw new Error("DODOBABY_SESSION_SECRET 至少需要 32 个字符");
   return createHmac("sha256", secret).update(value).digest("base64url");
+}
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function verifyAgentToken(token?: string): boolean {
+  const expectedHash = process.env.DODOBABY_AGENT_TOKEN_SHA256;
+  if (!token || !expectedHash || !/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
+  const actual = Buffer.from(sha256Hex(token), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function bearerToken(authorization?: string | null) {
+  const [scheme, token] = authorization?.split(/\s+/, 2) ?? [];
+  return scheme?.toLowerCase() === "bearer" ? token : undefined;
+}
+
+function hasAgentAuthorization(authorization?: string | null) {
+  return verifyAgentToken(bearerToken(authorization));
 }
 
 async function getPasswordHash() {
@@ -64,7 +85,9 @@ function verifySessionToken(token?: string): boolean {
 
 export async function isAuthenticated() {
   const cookieStore = await cookies();
-  return verifySessionToken(cookieStore.get(COOKIE_NAME)?.value);
+  if (verifySessionToken(cookieStore.get(COOKIE_NAME)?.value)) return true;
+  const headerStore = await headers();
+  return hasAgentAuthorization(headerStore.get("authorization"));
 }
 
 export async function createSession() {
@@ -84,6 +107,7 @@ export async function destroySession() {
 }
 
 export function isSameOrigin(request: Request) {
+  if (hasAgentAuthorization(request.headers.get("authorization"))) return true;
   const origin = request.headers.get("origin");
   if (!origin) return request.headers.get("sec-fetch-site") !== "cross-site";
   const expected = process.env.APP_URL;

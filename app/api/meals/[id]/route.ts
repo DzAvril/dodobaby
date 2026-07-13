@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { isAuthenticated, isSameOrigin } from "@/lib/auth";
 import { parseDate } from "@/lib/dates";
-import { deleteMeal, getCurrentBaby, updateMeal } from "@/lib/meals";
+import { deleteMeal, getCurrentBaby, getMeal, updateMeal } from "@/lib/meals";
 import { mealSchema } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
+
+export async function GET(_request: Request, { params }: Context) {
+  if (!(await isAuthenticated())) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  const baby = await getCurrentBaby();
+  if (!baby) return NextResponse.json({ error: "宝宝资料不存在" }, { status: 404 });
+  const meal = await getMeal((await params).id, baby.id);
+  return meal ? NextResponse.json({ meal }) : NextResponse.json({ error: "记录不存在" }, { status: 404 });
+}
 
 export async function PATCH(request: Request, { params }: Context) {
   if (!(await isAuthenticated())) return NextResponse.json({ error: "请先登录" }, { status: 401 });
