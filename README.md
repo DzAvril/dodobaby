@@ -14,13 +14,15 @@ openssl rand -hex 32
 
 把前一条命令输出的整行哈希填写到 `.env` 的 `DODOBABY_PASSWORD_HASH`，把随机字符串填写到 `DODOBABY_SESSION_SECRET`，再将 `APP_URL` 改为实际 HTTPS 域名。
 
-如需让本地 Codex 通过 MCP 代录记录，可额外生成独立 agent token：
+部署并登录后，可在“设置 → Agent / MCP 访问”中生成独立 token。原始 token 只显示一次，应用数据库仅保存 SHA256 hash；请把原始 token 保存在本地 Codex MCP 配置或 token 文件中。
+
+旧部署仍可通过命令生成 token：
 
 ```bash
 npm run agent:token
 ```
 
-把输出中的 `DODOBABY_AGENT_TOKEN_SHA256` 配进应用环境；`DODOBABY_AGENT_TOKEN` 只保存在本地 Codex MCP 配置或本机环境变量中，不要提交到仓库。
+把输出中的 `DODOBABY_AGENT_TOKEN_SHA256` 配进应用环境；`DODOBABY_AGENT_TOKEN` 只保存在本地 Codex MCP 配置或本机环境变量中，不要提交到仓库。环境变量 hash 仅作为兼容 fallback，一旦网页生成或撤销过 token，数据库配置优先。
 
 ```bash
 docker compose pull
@@ -68,7 +70,7 @@ npm run build
 
 ## 本地 Codex MCP
 
-MCP server 通过现有网站 API 执行操作，支持辅食餐次、辅食库、喂养、睡眠、尿布、用药计划、实际用药、生长和疫苗记录的增删改查。应用侧校验 `DODOBABY_AGENT_TOKEN_SHA256`，MCP 侧使用对应的 `DODOBABY_AGENT_TOKEN` 作为 Bearer token。
+MCP server 通过现有网站 API 执行操作，支持辅食餐次、辅食库、喂养、睡眠、尿布、用药计划、实际用药、生长和疫苗记录的增删改查。应用侧优先校验设置页保存的 token hash，并兼容 `DODOBABY_AGENT_TOKEN_SHA256`；MCP 侧使用对应的原始 token 作为 Bearer token。
 
 ```bash
 codex mcp add dodobaby \

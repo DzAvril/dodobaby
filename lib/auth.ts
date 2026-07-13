@@ -1,10 +1,11 @@
 import "server-only";
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { getDb } from "@/db";
 import { appSettings } from "@/db/schema";
+import { verifyAgentToken } from "@/lib/agent-access";
 import { hashPassword, verifyPasswordHash } from "@/lib/password";
 
 const COOKIE_NAME = "dodobaby_session";
@@ -18,18 +19,6 @@ function sign(value: string) {
   const secret = process.env.DODOBABY_SESSION_SECRET;
   if (!secret || secret.length < 32) throw new Error("DODOBABY_SESSION_SECRET 至少需要 32 个字符");
   return createHmac("sha256", secret).update(value).digest("base64url");
-}
-
-function sha256Hex(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function verifyAgentToken(token?: string): boolean {
-  const expectedHash = process.env.DODOBABY_AGENT_TOKEN_SHA256;
-  if (!token || !expectedHash || !/^[a-f0-9]{64}$/i.test(expectedHash)) return false;
-  const actual = Buffer.from(sha256Hex(token), "hex");
-  const expected = Buffer.from(expectedHash, "hex");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 function bearerToken(authorization?: string | null) {
@@ -84,10 +73,14 @@ function verifySessionToken(token?: string): boolean {
 }
 
 export async function isAuthenticated() {
-  const cookieStore = await cookies();
-  if (verifySessionToken(cookieStore.get(COOKIE_NAME)?.value)) return true;
+  if (await isSessionAuthenticated()) return true;
   const headerStore = await headers();
   return hasAgentAuthorization(headerStore.get("authorization"));
+}
+
+export async function isSessionAuthenticated() {
+  const cookieStore = await cookies();
+  return verifySessionToken(cookieStore.get(COOKIE_NAME)?.value);
 }
 
 export async function createSession() {
@@ -106,12 +99,15 @@ export async function destroySession() {
   cookieStore.set(COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
-export function isSameOrigin(request: Request) {
-  if (hasAgentAuthorization(request.headers.get("authorization"))) return true;
+export function isBrowserSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return request.headers.get("sec-fetch-site") !== "cross-site";
   const expected = process.env.APP_URL;
   if (expected) return new URL(origin).origin === new URL(expected).origin;
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   return Boolean(host && new URL(origin).host === host);
+}
+
+export function isSameOrigin(request: Request) {
+  return hasAgentAuthorization(request.headers.get("authorization")) || isBrowserSameOrigin(request);
 }

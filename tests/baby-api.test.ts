@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import Database from "better-sqlite3";
 
 const sessionSecret = "baby-api-test-session-secret-123456789";
 const agentToken = "baby-api-test-agent-token-123456789";
@@ -102,6 +103,19 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
       headers: { authorization: `Bearer ${agentToken}`, "content-type": "application/json", origin: "https://agent.example", ...init.headers },
     });
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    return { response, body };
+  }
+  async function agentAccessRequest(method = "GET", origin = baseUrl) {
+    const response = await fetch(`${baseUrl}/api/agent-access`, {
+      method,
+      headers: { cookie, origin, ...(method === "PATCH" ? { "content-type": "application/json" } : {}) },
+      body: method === "PATCH" ? JSON.stringify({ enabled: true }) : undefined,
+    });
+    const body = await response.json().catch(() => null) as {
+      error?: string;
+      token?: string;
+      status?: { enabled: boolean; configured: boolean; source: string | null; updatedAt: string | null };
+    } | null;
     return { response, body };
   }
   const baby = { name: "API Baby", birthDate: "2025-01-01", timezone: "Asia/Shanghai" };
@@ -322,4 +336,73 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   });
   assert.equal(legacyPatch.response.status, 200, JSON.stringify(legacyPatch.body));
   assert.equal(legacyPatch.body?.baby?.sex, "female");
+
+  const legacyAgentStatus = await agentAccessRequest();
+  assert.equal(legacyAgentStatus.response.status, 200, JSON.stringify(legacyAgentStatus.body));
+  assert.equal(legacyAgentStatus.response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(legacyAgentStatus.body?.status, {
+    enabled: true,
+    configured: true,
+    source: "environment",
+    updatedAt: null,
+  });
+  assert.equal("token" in (legacyAgentStatus.body ?? {}), false);
+
+  const bearerManagement = await fetch(`${baseUrl}/api/agent-access`, {
+    headers: { authorization: `Bearer ${agentToken}` },
+  });
+  assert.equal(bearerManagement.status, 401);
+  assert.equal((await agentAccessRequest("POST", "https://evil.example")).response.status, 403);
+
+  const disabled = await fetch(`${baseUrl}/api/agent-access`, {
+    method: "PATCH",
+    headers: { cookie, origin: baseUrl, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(disabled.status, 200, await disabled.text());
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${agentToken}` } })).status, 401);
+
+  const reEnabled = await agentAccessRequest("PATCH");
+  assert.equal(reEnabled.response.status, 200, JSON.stringify(reEnabled.body));
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${agentToken}` } })).status, 200);
+
+  const generated = await agentAccessRequest("POST");
+  assert.equal(generated.response.status, 200, JSON.stringify(generated.body));
+  assert.match(generated.body?.token ?? "", /^dodobaby_[A-Za-z0-9_-]{43}$/);
+  assert.equal(generated.body?.status?.enabled, true);
+  assert.equal(generated.body?.status?.source, "database");
+  assert.ok(generated.body?.status?.updatedAt);
+  const generatedToken = generated.body?.token ?? "";
+  const persistedStatus = await agentAccessRequest();
+  assert.equal(persistedStatus.response.status, 200, JSON.stringify(persistedStatus.body));
+  assert.equal("token" in (persistedStatus.body ?? {}), false);
+  assert.equal(JSON.stringify(persistedStatus.body).includes(generatedToken), false);
+
+  const sqlite = new Database(databasePath, { readonly: true });
+  const agentSettings = Object.fromEntries((sqlite.prepare("SELECT key, value FROM app_settings WHERE key LIKE 'agent_%'").all() as Array<{ key: string; value: string }>).map((row) => [row.key, row.value]));
+  sqlite.close();
+  assert.equal(agentSettings.agent_enabled, "true");
+  assert.equal(agentSettings.agent_token_hash, createHash("sha256").update(generatedToken).digest("hex"));
+  assert.ok(agentSettings.agent_token_updated_at);
+  assert.equal(Object.values(agentSettings).includes(generatedToken), false);
+
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${agentToken}` } })).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${generatedToken}` } })).status, 200);
+
+  const databaseDisabled = await fetch(`${baseUrl}/api/agent-access`, {
+    method: "PATCH",
+    headers: { cookie, origin: baseUrl, "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(databaseDisabled.status, 200, await databaseDisabled.text());
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${generatedToken}` } })).status, 401);
+  assert.equal((await agentAccessRequest("PATCH")).response.status, 200);
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${generatedToken}` } })).status, 200);
+
+  const revoked = await agentAccessRequest("DELETE");
+  assert.equal(revoked.response.status, 200, JSON.stringify(revoked.body));
+  assert.deepEqual(revoked.body?.status, { enabled: false, configured: false, source: null, updatedAt: null });
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${generatedToken}` } })).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/baby`, { headers: { authorization: `Bearer ${agentToken}` } })).status, 401);
+  assert.equal((await agentAccessRequest("PATCH")).response.status, 400);
 });

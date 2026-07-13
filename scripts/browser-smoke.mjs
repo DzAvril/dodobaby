@@ -754,10 +754,28 @@ try {
 
   await mobilePage.goto(`${baseUrl}/settings`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  const agentAccessCard = mobilePage.locator(".agent-access-settings");
+  await agentAccessCard.getByRole("heading", { name: "Agent / MCP 访问" }).waitFor();
+  const generateAgentToken = agentAccessCard.getByRole("button", { name: "生成 token" });
+  await generateAgentToken.click();
+  const revealedAgentToken = agentAccessCard.locator(".agent-token-reveal code");
+  await revealedAgentToken.waitFor();
+  assert.match(await revealedAgentToken.textContent(), /^dodobaby_[A-Za-z0-9_-]{43}$/);
+  const agentAccessSwitch = agentAccessCard.getByRole("switch", { name: "启用 Agent 访问" });
+  assert.equal(await agentAccessSwitch.isChecked(), true);
+  await agentAccessCard.locator(".agent-access-toggle").click();
+  await mobilePage.waitForFunction(() => !(document.querySelector('input[aria-label="启用 Agent 访问"]')?.checked));
+  await agentAccessCard.locator(".agent-access-toggle").click();
+  await mobilePage.waitForFunction(() => document.querySelector('input[aria-label="启用 Agent 访问"]')?.checked);
+  mobilePage.once("dialog", (confirmation) => confirmation.accept());
+  await agentAccessCard.getByRole("button", { name: "撤销 token" }).click();
+  await agentAccessCard.getByText("未配置 token", { exact: true }).waitFor();
+  assert.equal(await agentAccessSwitch.isChecked(), false);
   await mobilePage.getByRole("button", { name: "退出登录" }).waitFor();
   await mobile.close();
 } finally {
   await browser.close();
 }
 
-console.log("Browser smoke passed: growth, sleep, diaper, feeding and vaccination CRUD, scalable navigation, tracker retries, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: growth, sleep, diaper, feeding and vaccination CRUD, Agent access controls, scalable navigation, responsive layout, touch targets, and focus");
