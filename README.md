@@ -68,16 +68,18 @@ npm run lint
 npm run build
 ```
 
-## 本地 Codex MCP
+## 远程 Codex MCP
 
-MCP server 通过现有网站 API 执行操作，支持辅食餐次、辅食库、喂养、睡眠、尿布、用药计划、实际用药、生长和疫苗记录的增删改查。应用侧优先校验设置页保存的 token hash，并兼容 `DODOBABY_AGENT_TOKEN_SHA256`；MCP 侧使用对应的原始 token 作为 Bearer token。
+应用直接在 `/mcp` 提供 Streamable HTTP MCP 服务，支持辅食餐次、辅食库、喂养、睡眠、尿布、用药计划、实际用药、生长和疫苗记录的增删改查。客户端只需要部署地址和设置页生成的原始 token，不需要克隆本仓库或安装 Node.js。
 
 ```bash
+export DODOBABY_AGENT_TOKEN='设置页生成的原始 token'
 codex mcp add dodobaby \
-  --env DODOBABY_APP_URL=http://127.0.0.1:3000 \
-  --env DODOBABY_AGENT_TOKEN_FILE=/absolute/path/to/local-token-file \
-  -- /Users/bytedance/Documents/workspace/dodobaby/node_modules/.bin/tsx /Users/bytedance/Documents/workspace/dodobaby/scripts/dodobaby-mcp.ts
+  --url https://你的域名/mcp \
+  --bearer-token-env-var DODOBABY_AGENT_TOKEN
 ```
+
+仓库内的 `npm run mcp:dodobaby` 仅保留给本地开发和兼容旧的 stdio 配置，生产客户端应使用远程 `/mcp` 端点。
 
 常用 MCP 工具包括 `dodobaby_record_contracts`、`dodobaby_list_records`、`dodobaby_get_record`、`dodobaby_create_record`、`dodobaby_update_record`、`dodobaby_delete_record` 和 `dodobaby_end_sleep_record`。
 

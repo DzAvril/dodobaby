@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 const recordTypes = [
@@ -219,6 +220,8 @@ function withQuery(path: string, query: Record<string, string | number | boolean
   return params.size ? `${path}?${params}` : path;
 }
 
+export type DodoBabyApiFetch = (path: string, init?: { method?: string; body?: unknown }) => Promise<unknown>;
+
 async function apiFetch(path: string, init: { method?: string; body?: unknown } = {}) {
   const baseUrl = appBaseUrl();
   const response = await fetch(new URL(path, baseUrl), {
@@ -240,12 +243,15 @@ async function apiFetch(path: string, init: { method?: string; body?: unknown } 
   return body;
 }
 
-const server = new McpServer({
-  name: "dodobaby",
-  version: "0.1.0",
-});
+export function createDodoBabyMcpServer(options: { apiFetch?: DodoBabyApiFetch; appUrl?: string } = {}) {
+  const fetchApi = options.apiFetch ?? apiFetch;
+  const exposedAppUrl = options.appUrl ?? appBaseUrl();
+  const server = new McpServer({
+    name: "dodobaby",
+    version: "0.1.0",
+  });
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_auth_status",
   {
     title: "Check DodoBaby authentication",
@@ -255,15 +261,15 @@ server.registerTool(
   },
   async () => {
     try {
-      const body = await apiFetch("/api/baby");
-      return toolResult({ ok: true, appUrl: appBaseUrl(), ...body });
+      const body = await fetchApi("/api/baby");
+      return toolResult({ ok: true, appUrl: exposedAppUrl, ...body as object });
     } catch (error) {
-      return toolResult({ ok: false, appUrl: appBaseUrl(), error: errorMessage(error) });
+      return toolResult({ ok: false, appUrl: exposedAppUrl, error: errorMessage(error) });
     }
   },
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_record_contracts",
   {
     title: "List DodoBaby record contracts",
@@ -274,7 +280,7 @@ server.registerTool(
   async () => toolResult({ recordTypes, records: recordConfigs }),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_get_baby",
   {
     title: "Get current baby profile",
@@ -282,10 +288,10 @@ server.registerTool(
     inputSchema: {},
     annotations: { readOnlyHint: true },
   },
-  async () => toolResult(await apiFetch("/api/baby")),
+  async () => toolResult(await fetchApi("/api/baby")),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_save_baby",
   {
     title: "Create or update baby profile",
@@ -295,13 +301,13 @@ server.registerTool(
     },
   },
   async ({ payload }) => {
-    const existing = await apiFetch("/api/baby");
+    const existing = await fetchApi("/api/baby") as { baby?: unknown } | null;
     const method = existing?.baby ? "PATCH" : "POST";
-    return toolResult(await apiFetch("/api/baby", { method, body: payload }));
+    return toolResult(await fetchApi("/api/baby", { method, body: payload }));
   },
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_list_records",
   {
     title: "List records",
@@ -314,11 +320,11 @@ server.registerTool(
   },
   async ({ recordType, query }) => {
     const config = recordConfigs[recordType];
-    return toolResult(await apiFetch(withQuery(config.listPath, query, config.requiredListQuery)));
+    return toolResult(await fetchApi(withQuery(config.listPath, query, config.requiredListQuery)));
   },
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_get_record",
   {
     title: "Get record by id",
@@ -329,10 +335,10 @@ server.registerTool(
     },
     annotations: { readOnlyHint: true },
   },
-  async ({ recordType, id }) => toolResult(await apiFetch(recordConfigs[recordType].itemPath(id))),
+  async ({ recordType, id }) => toolResult(await fetchApi(recordConfigs[recordType].itemPath(id))),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_create_record",
   {
     title: "Create record",
@@ -342,10 +348,10 @@ server.registerTool(
       payload: JsonObjectSchema,
     },
   },
-  async ({ recordType, payload }) => toolResult(await apiFetch(recordConfigs[recordType].listPath, { method: "POST", body: payload })),
+  async ({ recordType, payload }) => toolResult(await fetchApi(recordConfigs[recordType].listPath, { method: "POST", body: payload })),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_update_record",
   {
     title: "Update record",
@@ -356,10 +362,10 @@ server.registerTool(
       payload: JsonObjectSchema,
     },
   },
-  async ({ recordType, id, payload }) => toolResult(await apiFetch(recordConfigs[recordType].itemPath(id), { method: "PATCH", body: payload })),
+  async ({ recordType, id, payload }) => toolResult(await fetchApi(recordConfigs[recordType].itemPath(id), { method: "PATCH", body: payload })),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_delete_record",
   {
     title: "Delete record",
@@ -369,10 +375,10 @@ server.registerTool(
       id: z.string().min(1),
     },
   },
-  async ({ recordType, id }) => toolResult(await apiFetch(recordConfigs[recordType].itemPath(id), { method: "DELETE" })),
+  async ({ recordType, id }) => toolResult(await fetchApi(recordConfigs[recordType].itemPath(id), { method: "DELETE" })),
 );
 
-server.registerTool(
+  server.registerTool(
   "dodobaby_end_sleep_record",
   {
     title: "End active sleep record",
@@ -381,8 +387,20 @@ server.registerTool(
       id: z.string().min(1),
     },
   },
-  async ({ id }) => toolResult(await apiFetch(`/api/sleeps/${encodeURIComponent(id)}/end`, { method: "POST" })),
+  async ({ id }) => toolResult(await fetchApi(`/api/sleeps/${encodeURIComponent(id)}/end`, { method: "POST" })),
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+  return server;
+}
+
+async function startStdioServer() {
+  const server = createDodoBabyMcpServer();
+  await server.connect(new StdioServerTransport());
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void startStdioServer().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

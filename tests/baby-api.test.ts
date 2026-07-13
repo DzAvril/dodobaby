@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import Database from "better-sqlite3";
 
 const sessionSecret = "baby-api-test-session-secret-123456789";
@@ -52,6 +53,7 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   const baseUrl = `http://127.0.0.1:${port}`;
   const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
   let mcpClient: Client | null = null;
+  let remoteMcpClient: Client | null = null;
   const child = spawn(process.execPath, [nextBin, "dev", "--webpack", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: process.cwd(),
     env: {
@@ -72,6 +74,7 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   child.stderr?.on("data", capture);
   context.after(async () => {
     await mcpClient?.close().catch(() => undefined);
+    await remoteMcpClient?.close().catch(() => undefined);
     await stopServer(child);
     rmSync(directory, { recursive: true, force: true });
   });
@@ -201,6 +204,25 @@ test("宝宝 API 创建缺省 unknown、校验枚举并在 PATCH 省略时保留
   await mcpClient.connect(mcpTransport);
   const tools = await mcpClient.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "dodobaby_create_record"));
+
+  const unauthorizedMcp = await fetch(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "unauthorized-test", version: "0.0.0" } } }),
+  });
+  assert.equal(unauthorizedMcp.status, 401);
+  assert.equal(unauthorizedMcp.headers.get("www-authenticate"), 'Bearer realm="dodobaby-mcp"');
+  assert.equal((await fetch(`${baseUrl}/mcp`, { headers: { authorization: `Bearer ${agentToken}` } })).status, 405);
+
+  remoteMcpClient = new Client({ name: "dodobaby-remote-api-test", version: "0.0.0" });
+  await remoteMcpClient.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${agentToken}` } },
+  }));
+  const remoteTools = await remoteMcpClient.listTools();
+  assert.deepEqual(remoteTools.tools.map((tool) => tool.name), tools.tools.map((tool) => tool.name));
+  const remoteAuth = await remoteMcpClient.callTool({ name: "dodobaby_auth_status", arguments: {} });
+  const remoteAuthContent = remoteAuth.content as Array<{ type: string; text?: string }>;
+  assert.equal(JSON.parse(remoteAuthContent[0]?.text ?? "null").ok, true);
 
   async function callMcp(name: string, args: Record<string, unknown> = {}) {
     assert.ok(mcpClient);
