@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChartNoAxesCombined, ChevronLeft, ChevronRight, Circle, Info, Pencil, Plus, Ruler, Scale, Trash2, X } from "lucide-react";
+import { ChartNoAxesCombined, ChevronLeft, ChevronRight, Circle, Info, Pencil, Plus, Ruler, Scale, Trash2, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Baby } from "@/components/DiaryApp";
 import { jsonRequest } from "@/lib/client-api";
 import { formatAge, todayInTimezone } from "@/lib/dates";
@@ -99,6 +99,7 @@ const WHO_CURVES: Array<{ key: WhoPercentile; label: string }> = [
   { key: "p85", label: "P85" },
   { key: "p97", label: "P97" },
 ];
+const GROWTH_ZOOM_LEVELS: GrowthRange[] = [3, 6, 12, 24, 36, 60, "all"];
 
 function monthTickLabel(month: number) {
   if (month === 0) return "出生";
@@ -165,8 +166,8 @@ function GrowthChart({ records, metric, birthDate, sex, rangeMonths }: {
         })}
         {WHO_CURVES.map(({ key, label }) => chart.percentilePaths[key] && <path key={key} className={`who-percentile ${key}`} data-percentile={label} d={chart.percentilePaths[key]} />)}
         {chart.referencePoints.length > 0 && WHO_CURVES.map(({ key, label }) => { const last = chart.referencePoints.at(-1)!; return <text key={key} className={`who-percentile-label ${key}`} x={last.x + 5} y={last.y[key] + 3}>{label}</text>; })}
-        {chart.points.length > 1 && <path className="growth-personal-path" d={chart.personalPath} fill="none" stroke={config.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />}
-        {chart.points.map((point, index) => <g key={point.id} className={index === effectiveIndex || point.id === hoveredId ? "selected" : ""} role="button" tabIndex={0} aria-label={`${point.date}，${formatAge(birthDate, point.date)}，${formatGrowthValue(point.value, metric)}${config.unit}`} onClick={() => choose(index)} onPointerEnter={() => setHoveredId(point.id)} onPointerLeave={() => setHoveredId((current) => current === point.id ? null : current)} onPointerDown={() => setHoveredId(point.id)} onFocus={() => setHoveredId(point.id)} onBlur={() => setHoveredId((current) => current === point.id ? null : current)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(index); } }}><circle className="growth-point-hit" cx={point.x} cy={point.y} r="22" /><circle className="growth-point-dot" cx={point.x} cy={point.y} r={index === effectiveIndex || point.id === hoveredId ? 7 : 6} fill="#fffdf9" stroke={config.color} strokeWidth="4" /><title>{point.date}（{formatAge(birthDate, point.date)}）：{formatGrowthValue(point.value, metric)}{config.unit}</title></g>)}
+        {chart.points.length > 1 && <path className="growth-personal-path" d={chart.personalPath} fill="none" stroke={config.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
+        {chart.points.map((point, index) => <g key={point.id} className={index === effectiveIndex || point.id === hoveredId ? "selected" : ""} role="button" tabIndex={0} aria-label={`${point.date}，${formatAge(birthDate, point.date)}，${formatGrowthValue(point.value, metric)}${config.unit}`} onClick={() => choose(index)} onPointerEnter={() => setHoveredId(point.id)} onPointerLeave={() => setHoveredId((current) => current === point.id ? null : current)} onPointerDown={() => setHoveredId(point.id)} onFocus={() => setHoveredId(point.id)} onBlur={() => setHoveredId((current) => current === point.id ? null : current)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(index); } }}><circle className="growth-point-hit" cx={point.x} cy={point.y} r="22" /><circle className="growth-point-dot" cx={point.x} cy={point.y} r={index === effectiveIndex || point.id === hoveredId ? 5 : 3.5} fill="#fffdf9" stroke={config.color} strokeWidth="2.5" /><title>{point.date}（{formatAge(birthDate, point.date)}）：{formatGrowthValue(point.value, metric)}{config.unit}</title></g>)}
       </svg>
       {tooltipPoint && <div className="growth-point-tooltip" aria-hidden="true" style={{ left: tooltipLeft, top: tooltipTop }}>
         <strong>{tooltipPoint.date}</strong>
@@ -242,6 +243,12 @@ export function GrowthTracker({ baby }: { baby: Baby }) {
   const summaries = useMemo(() => METRICS.map((item) => ({ ...item, ...latestMetric(records, item.key) })), [records]);
   const viewState = trackerViewState({ loading, error: Boolean(error), hasCurrentData: hasLoaded, itemCount: records.length });
   const whoSex: WhoGrowthSex | null = baby.sex === "male" || baby.sex === "female" ? baby.sex : null;
+  const zoomIndex = GROWTH_ZOOM_LEVELS.indexOf(rangeMonths);
+
+  function changeZoom(direction: -1 | 1) {
+    const next = GROWTH_ZOOM_LEVELS[zoomIndex + direction];
+    if (next != null) setRangeMonths(next);
+  }
 
   async function removeRecord(record: GrowthRecord) {
     if (!window.confirm(`确定删除 ${record.measuredDate} 的生长记录吗？`)) return;
@@ -275,7 +282,13 @@ export function GrowthTracker({ baby }: { baby: Baby }) {
         <div className="growth-card-heading"><div><h2>标准生长曲线</h2><p>宝宝的测量点叠加在 WHO 同年龄、同性别儿童的百分位曲线上。</p></div><div className="metric-switch" role="group" aria-label="选择生长指标">{METRICS.map((item) => <button key={item.key} type="button" className={metric === item.key ? "active" : ""} aria-pressed={metric === item.key} onClick={() => setMetric(item.key)}>{item.label}</button>)}</div></div>
         <div className="growth-chart-controls">
           {whoSex ? <div className="growth-standard-status"><Info /><span><strong>WHO {whoSex === "female" ? "女童" : "男童"}标准</strong><small>已按宝宝资料匹配</small></span><Link href="/settings#baby-profile">更改</Link></div> : <div className="growth-standard-gate"><Info /><span><strong>设置性别后显示 WHO 标准曲线</strong><small>不设置也不影响个人记录；系统不会猜测或混用男女标准。</small></span><Link href="/settings#baby-profile">补充宝宝资料</Link></div>}
-          <label className="growth-range-select"><span>查看范围</span><select aria-label="选择生长曲线年龄范围" value={rangeMonths} onChange={(event) => setRangeMonths(event.target.value === "all" ? "all" : Number(event.target.value) as GrowthRange)}><option value="24">出生至 2 岁</option><option value="36">出生至 3 岁</option><option value="60">WHO 全范围（0–60 月）</option><option value="all">全部记录（WHO 至 60 月）</option></select></label>
+          <div className="growth-range-control">
+            <label className="growth-range-select"><span>查看范围</span><select aria-label="选择生长曲线年龄范围" value={rangeMonths} onChange={(event) => setRangeMonths(event.target.value === "all" ? "all" : Number(event.target.value) as GrowthRange)}><option value="3">出生至 3 个月</option><option value="6">出生至 6 个月</option><option value="12">出生至 1 岁</option><option value="24">出生至 2 岁</option><option value="36">出生至 3 岁</option><option value="60">WHO 全范围（0–60 月）</option><option value="all">全部记录（WHO 至 60 月）</option></select></label>
+            <div className="growth-zoom-buttons" role="group" aria-label="缩放生长曲线">
+              <button type="button" className="icon-button" aria-label="缩小生长曲线" title="缩小生长曲线" disabled={zoomIndex === GROWTH_ZOOM_LEVELS.length - 1} onClick={() => changeZoom(1)}><ZoomOut /></button>
+              <button type="button" className="icon-button" aria-label="放大生长曲线" title="放大生长曲线" disabled={zoomIndex === 0} onClick={() => changeZoom(-1)}><ZoomIn /></button>
+            </div>
+          </div>
         </div>
         <GrowthChart records={records} metric={metric} birthDate={baby.birthDate} sex={whoSex} rangeMonths={rangeMonths} />
         <p className="growth-standard-disclaimer">WHO 百分位曲线用于展示同年龄、同性别儿童的生长分布参考，不表示正常或异常，也不能替代儿童保健或医生评估。</p>

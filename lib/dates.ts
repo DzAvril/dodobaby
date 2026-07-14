@@ -115,6 +115,17 @@ export function getMonthGrid(month: string): string[] {
   return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
 }
 
+export function startOfWeek(value: string): string {
+  const date = parseDate(value);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  return addDays(value, -mondayOffset);
+}
+
+export function getWeekDates(value: string): string[] {
+  const start = startOfWeek(value);
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+}
+
 function addMonthsClamped(date: Date, months: number): Date {
   const targetMonth = date.getUTCMonth() + months;
   const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);

@@ -165,6 +165,30 @@ try {
   assert.equal(await page.locator(".feeding-record-card").filter({ hasText: "混合瓶喂" }).count(), 1);
   await page.unroute("**/api/feedings?*");
 
+  await page.goto(`${baseUrl}/food`, { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: /辅食日历/ }).waitFor();
+  const calendarViewSwitch = page.getByRole("group", { name: "辅食日历查看粒度" });
+  assert.equal(await calendarViewSwitch.getByRole("button", { name: "月", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(await page.locator(".calendar-grid.view-month .calendar-day").count(), 42);
+  await calendarViewSwitch.getByRole("button", { name: "周", exact: true }).click();
+  assert.equal(await page.locator(".calendar-grid.view-week .calendar-day").count(), 7);
+  const weekTitle = await page.locator(".month-switcher h2").textContent();
+  await page.locator(".calendar-grid.view-week").evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 81, pointerType: "touch", clientX: 680, clientY: 260 }));
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 81, pointerType: "touch", clientX: 480, clientY: 260 }));
+  });
+  await page.waitForFunction((previous) => document.querySelector(".month-switcher h2")?.textContent !== previous, weekTitle);
+  assert.equal(await page.locator(".day-drawer[open]").count(), 0);
+  await calendarViewSwitch.getByRole("button", { name: "天", exact: true }).click();
+  assert.equal(await page.locator(".calendar-grid.view-day .calendar-day").count(), 1);
+  const dayTitle = await page.locator(".month-switcher h2").textContent();
+  await page.locator(".calendar-grid.view-day").evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 82, pointerType: "touch", clientX: 480, clientY: 260 }));
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 82, pointerType: "touch", clientX: 680, clientY: 260 }));
+  });
+  await page.waitForFunction((previous) => document.querySelector(".month-switcher h2")?.textContent !== previous, dayTitle);
+  assert.equal(await page.locator(".day-drawer[open]").count(), 0);
+
   await page.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /生长记录/ }).waitFor();
   await page.route("**/api/growth", (route) => route.fulfill({
@@ -216,6 +240,14 @@ try {
   let currentGrowthRecord = page.locator(".growth-history-list article").filter({ hasText: "7.35 kg" });
   await currentGrowthRecord.waitFor();
   assert.equal(await page.locator('.growth-chart g[role="button"]').count(), 2);
+  assert.equal(await page.locator(".growth-point-dot").first().getAttribute("r"), "3.5");
+  assert.equal(await page.locator(".growth-point-dot").last().getAttribute("r"), "5");
+  const growthRange = page.getByLabel("选择生长曲线年龄范围");
+  const latestPointXBeforeZoom = Number(await page.locator(".growth-point-dot").last().getAttribute("cx"));
+  await page.getByRole("button", { name: "放大生长曲线" }).click();
+  assert.equal(await growthRange.inputValue(), "24");
+  const latestPointXAfterZoom = Number(await page.locator(".growth-point-dot").last().getAttribute("cx"));
+  assert.ok(latestPointXAfterZoom > latestPointXBeforeZoom, `growth point did not spread after zoom: ${JSON.stringify({ latestPointXBeforeZoom, latestPointXAfterZoom })}`);
   assert.match(await page.locator(".growth-summary-grid article").filter({ hasText: "体重" }).textContent(), /7\.35 kg[\s\S]*较上次 \+0\.01 kg/);
   assert.match(await page.locator(".growth-chart-inspector").textContent(), /7\.35 kg[\s\S]*第 2\/2/);
   assert.equal(await currentGrowthRecord.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true);
@@ -687,6 +719,19 @@ try {
   await mobileDiaperDialog.waitFor({ state: "hidden" });
   await mobilePage.waitForFunction(() => document.activeElement?.textContent?.includes("小便"));
 
+  await mobilePage.goto(`${baseUrl}/food`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  const mobileCalendarViewSwitch = mobilePage.getByRole("group", { name: "辅食日历查看粒度" });
+  await mobileCalendarViewSwitch.getByRole("button", { name: "周", exact: true }).click();
+  assert.equal(await mobilePage.locator(".calendar-grid.view-week .calendar-day").count(), 7);
+  assert.equal(await mobilePage.locator(".calendar-grid.view-week").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length), 1);
+  assert.equal(await mobilePage.locator(".weekday-row.view-week").isVisible(), false);
+  await mobileCalendarViewSwitch.getByRole("button", { name: "天", exact: true }).click();
+  assert.equal(await mobilePage.locator(".calendar-grid.view-day .calendar-day").count(), 1);
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+
   await mobilePage.goto(`${baseUrl}/more`, { waitUntil: "networkidle" });
   await mobilePage.getByRole("heading", { name: "更多功能" }).waitFor();
   assert.deepEqual(await mobilePage.locator(".more-module-card").allTextContents(), ["辅食日记计划、食材与实际反馈", "用药记录计划、剂量与实际服用", "生长记录体重、身高与头围趋势", "疫苗记录接种计划与接种事实", "家庭设置宝宝资料、导航、密码与辅食库"]);
@@ -757,7 +802,8 @@ try {
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   const agentAccessCard = mobilePage.locator(".agent-access-settings");
   await agentAccessCard.getByRole("heading", { name: "Agent / MCP 访问" }).waitFor();
-  const generateAgentToken = agentAccessCard.getByRole("button", { name: "生成 token" });
+  const generateAgentToken = agentAccessCard.locator(".agent-access-actions button").first();
+  if ((await generateAgentToken.textContent())?.includes("生成新")) mobilePage.once("dialog", (confirmation) => confirmation.accept());
   await generateAgentToken.click();
   const revealedAgentToken = agentAccessCard.locator(".agent-token-reveal code");
   await revealedAgentToken.waitFor();

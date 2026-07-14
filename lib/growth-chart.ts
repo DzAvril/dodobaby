@@ -10,7 +10,7 @@ import {
 } from "@/lib/who-growth-standards";
 
 export type GrowthMetric = "weightKg" | "heightCm" | "headCircumferenceCm";
-export type GrowthRangeMonths = 24 | 36 | 60;
+export type GrowthRangeMonths = 3 | 6 | 12 | 24 | 36 | 60;
 export type GrowthRange = GrowthRangeMonths | "all";
 export type GrowthPointSource = {
   id: string;
@@ -21,6 +21,9 @@ export type GrowthPointSource = {
 };
 
 export const GROWTH_RANGE_MAX_DAYS: Record<GrowthRangeMonths, number> = {
+  3: 91,
+  6: 183,
+  12: 365,
   24: 731,
   36: 1096,
   60: WHO_GROWTH_MAX_DAY,
@@ -82,7 +85,7 @@ function bandPath(
 
 function ageTicks(range: GrowthRange, rangeDays: number) {
   const maxMonth = range === "all" ? Math.ceil(rangeDays / 30.4375) : range;
-  const step = maxMonth <= 36 ? 6 : maxMonth <= 120 ? 12 : 24;
+  const step = maxMonth <= 6 ? 1 : maxMonth <= 12 ? 3 : maxMonth <= 36 ? 6 : maxMonth <= 120 ? 12 : 24;
   return Array.from({ length: Math.floor(maxMonth / step) + 1 }, (_, index) => {
     const month = index * step;
     return { month, day: Math.min(Math.round(month * 30.4375), rangeDays) };

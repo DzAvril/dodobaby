@@ -21,7 +21,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { formatAge, getMonthGrid, todayInTimezone } from "@/lib/dates";
+import { addDays, formatAge, getMonthGrid, getWeekDates, todayInTimezone } from "@/lib/dates";
 import { jsonRequest } from "@/lib/client-api";
 
 export type BabySex = "male" | "female" | "unknown";
@@ -78,6 +78,8 @@ const REACTION_OPTIONS = [
 const REACTION_LABELS = Object.fromEntries(REACTION_OPTIONS);
 const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const UNITS = ["g", "ml", "勺", "滴", "块", "个", "份"];
+type CalendarView = "month" | "week" | "day";
+const CALENDAR_VIEW_LABELS: Record<CalendarView, string> = { month: "月", week: "周", day: "天" };
 
 function shiftMonth(month: string, amount: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -95,6 +97,23 @@ function dateTitle(date: string) {
   return `${parsed.getUTCMonth() + 1}月${parsed.getUTCDate()}日 ${WEEKDAYS[(parsed.getUTCDay() + 6) % 7]}`;
 }
 
+function calendarPeriodTitle(view: CalendarView, anchorDate: string) {
+  if (view === "month") return monthTitle(anchorDate.slice(0, 7));
+  if (view === "day") {
+    const parsed = new Date(`${anchorDate}T00:00:00Z`);
+    return `${parsed.getUTCFullYear()}年${parsed.getUTCMonth() + 1}月${parsed.getUTCDate()}日`;
+  }
+  const dates = getWeekDates(anchorDate);
+  const start = new Date(`${dates[0]}T00:00:00Z`);
+  const end = new Date(`${dates[6]}T00:00:00Z`);
+  const endLabel = start.getUTCFullYear() === end.getUTCFullYear() && start.getUTCMonth() === end.getUTCMonth()
+    ? `${end.getUTCDate()}日`
+    : start.getUTCFullYear() === end.getUTCFullYear()
+      ? `${end.getUTCMonth() + 1}月${end.getUTCDate()}日`
+      : `${end.getUTCFullYear()}年${end.getUTCMonth() + 1}月${end.getUTCDate()}日`;
+  return `${start.getUTCFullYear()}年${start.getUTCMonth() + 1}月${start.getUTCDate()}日 - ${endLabel}`;
+}
+
 function mealLabel(meal: Meal) {
   return meal.customMealType || MEAL_LABELS[meal.mealType] || "辅食";
 }
@@ -102,6 +121,11 @@ function mealLabel(meal: Meal) {
 function itemText(item: MealItem) {
   const amount = item.amount == null ? "" : Number.isInteger(item.amount) ? String(item.amount) : String(Number(item.amount.toFixed(2)));
   return `${item.name}${amount}${item.unit || ""}`;
+}
+
+async function fetchMealsForMonths(monthsKey: string) {
+  const responses = await Promise.all(monthsKey.split(",").map((month) => jsonRequest<{ meals: Meal[] }>(`/api/meals?month=${month}`)));
+  return responses.flatMap((response) => response.meals);
 }
 
 export function BabyForm({ baby, onSaved }: { baby?: Baby | null; onSaved: (baby: Baby) => void }) {
@@ -358,7 +382,8 @@ export function MealEditor({ date, meal, foods, onSaved, onCancel }: { date: str
 }
 
 export function DiaryApp({ baby }: { baby: Baby }) {
-  const [month, setMonth] = useState(() => todayInTimezone().slice(0, 7));
+  const [calendarView, setCalendarView] = useState<CalendarView>("month");
+  const [anchorDate, setAnchorDate] = useState(() => todayInTimezone());
   const [meals, setMeals] = useState<Meal[]>([]);
   const [foods, setFoods] = useState<FoodCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -369,24 +394,44 @@ export function DiaryApp({ baby }: { baby: Baby }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [reactionFilter, setReactionFilter] = useState("");
   const drawerRef = useRef<HTMLDialogElement>(null);
+  const requestSequenceRef = useRef(0);
+  const swipeStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const suppressDayClickRef = useRef(false);
+  const today = todayInTimezone(baby.timezone);
+  const month = anchorDate.slice(0, 7);
+  const gridDates = useMemo(() => {
+    if (calendarView === "month") return getMonthGrid(month);
+    if (calendarView === "week") return getWeekDates(anchorDate);
+    return [anchorDate];
+  }, [anchorDate, calendarView, month]);
+  const periodDates = useMemo(
+    () => calendarView === "month" ? gridDates.filter((date) => date.startsWith(month)) : gridDates,
+    [calendarView, gridDates, month],
+  );
+  const visibleMonthsKey = useMemo(() => [...new Set(gridDates.map((date) => date.slice(0, 7)))].join(","), [gridDates]);
 
-  const loadMeals = useCallback(async (targetMonth: string) => {
+  const loadMeals = useCallback(async () => {
+    const requestId = ++requestSequenceRef.current;
     setLoading(true);
     try {
-      const data = await jsonRequest<{ meals: Meal[] }>(`/api/meals?month=${targetMonth}`);
-      setMeals(data.meals);
+      const nextMeals = await fetchMealsForMonths(visibleMonthsKey);
+      if (requestId === requestSequenceRef.current) setMeals(nextMeals);
+    } catch {
+      if (requestId === requestSequenceRef.current) setMeals([]);
     } finally {
-      setLoading(false);
+      if (requestId === requestSequenceRef.current) setLoading(false);
     }
-  }, []);
+  }, [visibleMonthsKey]);
 
   useEffect(() => {
-    let active = true;
-    jsonRequest<{ meals: Meal[] }>(`/api/meals?month=${month}`)
-      .then((data) => { if (active) setMeals(data.meals); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [baby, month]);
+    const requestId = ++requestSequenceRef.current;
+    Promise.resolve().then(() => { if (requestId === requestSequenceRef.current) setLoading(true); });
+    fetchMealsForMonths(visibleMonthsKey)
+      .then((nextMeals) => { if (requestId === requestSequenceRef.current) setMeals(nextMeals); })
+      .catch(() => { if (requestId === requestSequenceRef.current) setMeals([]); })
+      .finally(() => { if (requestId === requestSequenceRef.current) setLoading(false); });
+    return () => { requestSequenceRef.current += 1; };
+  }, [baby.id, visibleMonthsKey]);
   useEffect(() => {
     let active = true;
     jsonRequest<{ foods: FoodCatalogItem[] }>("/api/foods")
@@ -407,34 +452,68 @@ export function DiaryApp({ baby }: { baby: Baby }) {
     return matchesIngredient && matchesStatus && matchesReaction;
   }), [meals, ingredientFilter, statusFilter, reactionFilter]);
 
-  const gridDates = useMemo(() => getMonthGrid(month), [month]);
   const selectedMeals = filteredMeals.filter((meal) => meal.mealDate === selectedDate);
   const filteredByDate = useMemo(() => new Map(gridDates.map((date) => [date, filteredMeals.filter((meal) => meal.mealDate === date)])), [gridDates, filteredMeals]);
-  const completedCount = meals.filter((meal) => meal.actualStatus === "completed").length;
-  const uniqueFoods = new Set(meals.flatMap((meal) => meal.items.map((item) => item.name.trim()).filter(Boolean))).size;
-  const today = todayInTimezone(baby.timezone);
+  const periodDateSet = useMemo(() => new Set(periodDates), [periodDates]);
+  const periodMeals = useMemo(() => meals.filter((meal) => periodDateSet.has(meal.mealDate)), [meals, periodDateSet]);
+  const completedCount = periodMeals.filter((meal) => meal.actualStatus === "completed").length;
+  const uniqueFoods = new Set(periodMeals.flatMap((meal) => meal.items.map((item) => item.name.trim()).filter(Boolean))).size;
 
   function openDay(date: string) {
-    const targetMonth = date.slice(0, 7);
-    if (targetMonth !== month) {
-      setLoading(true);
-      setMonth(targetMonth);
+    if (calendarView === "month" && !date.startsWith(month)) {
+      setAnchorDate(date);
     }
     setSelectedDate(date);
     setFormMeal(undefined);
     setDrawerOpen(true);
   }
 
-  function changeMonth(next: string) {
-    setLoading(true);
-    setMonth(next);
-    setSelectedDate(next === today.slice(0, 7) ? today : `${next}-01`);
+  function changePeriod(amount: -1 | 1) {
+    const nextDate = calendarView === "month"
+      ? `${shiftMonth(month, amount)}-01`
+      : addDays(anchorDate, amount * (calendarView === "week" ? 7 : 1));
+    setAnchorDate(nextDate);
+    setSelectedDate(nextDate);
+  }
+
+  function changeCalendarView(nextView: CalendarView) {
+    setCalendarView(nextView);
+    setAnchorDate(selectedDate);
+  }
+
+  function returnToToday() {
+    setAnchorDate(today);
+    setSelectedDate(today);
+  }
+
+  function startSwipe(event: React.PointerEvent<HTMLDivElement>) {
+    if (calendarView === "month" || event.pointerType === "mouse") return;
+    swipeStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  function finishSwipe(event: React.PointerEvent<HTMLDivElement>) {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (Math.abs(deltaX) < 52 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
+    suppressDayClickRef.current = true;
+    changePeriod(deltaX < 0 ? 1 : -1);
+    window.setTimeout(() => { suppressDayClickRef.current = false; }, 0);
+  }
+
+  function suppressClickAfterSwipe(event: React.MouseEvent<HTMLDivElement>) {
+    if (!suppressDayClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressDayClickRef.current = false;
   }
 
   async function removeMeal(meal: Meal) {
     if (!window.confirm(`确定删除 ${meal.plannedTime || "这餐"} 的${mealLabel(meal)}记录吗？`)) return;
     await jsonRequest(`/api/meals/${meal.id}`, { method: "DELETE" });
-    await loadMeals(month);
+    await loadMeals();
   }
 
   async function copyPrevious() {
@@ -449,13 +528,16 @@ export function DiaryApp({ baby }: { baby: Baby }) {
   return (
     <section className="food-module">
       <section className="dashboard-head">
-        <div><p className="eyebrow">MONTHLY FOOD PLAN</p><h1>{baby.name}的辅食月历</h1><p>计划好每一餐，也留下宝宝真实的接受和反应。</p></div>
-        <div className="month-stats" aria-label="本月概览"><div><strong>{meals.length}</strong><span>餐计划</span></div><div><strong>{completedCount}</strong><span>已吃完</span></div><div><strong>{uniqueFoods}</strong><span>种食材</span></div></div>
+        <div><p className="eyebrow">FOOD CALENDAR</p><h1>{baby.name}的辅食日历</h1><p>计划好每一餐，也留下宝宝真实的接受和反应。</p></div>
+        <div className="month-stats" aria-label={`${CALENDAR_VIEW_LABELS[calendarView]}视图概览`}><div><strong>{periodMeals.length}</strong><span>餐计划</span></div><div><strong>{completedCount}</strong><span>已吃完</span></div><div><strong>{uniqueFoods}</strong><span>种食材</span></div></div>
       </section>
 
       <section className="calendar-card">
         <div className="calendar-toolbar">
-          <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => changeMonth(shiftMonth(month, -1))}><ChevronLeft /></button><h2>{monthTitle(month)}</h2><button className="icon-button" aria-label="下个月" onClick={() => changeMonth(shiftMonth(month, 1))}><ChevronRight /></button><button className="today-button" onClick={() => changeMonth(today.slice(0, 7))}>回到今天</button></div>
+          <div className="calendar-navigation">
+            <div className="month-switcher"><button className="icon-button" aria-label={calendarView === "month" ? "上个月" : calendarView === "week" ? "上一周" : "前一天"} onClick={() => changePeriod(-1)}><ChevronLeft /></button><h2>{calendarPeriodTitle(calendarView, anchorDate)}</h2><button className="icon-button" aria-label={calendarView === "month" ? "下个月" : calendarView === "week" ? "下一周" : "后一天"} onClick={() => changePeriod(1)}><ChevronRight /></button><button className="today-button" onClick={returnToToday}>回到今天</button></div>
+            <div className="calendar-view-switch" role="group" aria-label="辅食日历查看粒度">{(["month", "week", "day"] as const).map((view) => <button key={view} type="button" className={calendarView === view ? "active" : ""} aria-pressed={calendarView === view} onClick={() => changeCalendarView(view)}>{CALENDAR_VIEW_LABELS[view]}</button>)}</div>
+          </div>
           <div className="toolbar-actions">
             <details className="export-menu"><summary className="secondary-button"><Download size={17} />导出</summary><div className="export-popover">
               <p>打印与分享</p>
@@ -467,7 +549,7 @@ export function DiaryApp({ baby }: { baby: Baby }) {
               <a href={`/api/exports/data?month=${month}&format=json`}><FileJson />JSON 月度辅食数据</a>
               <a href={`/api/exports/data?month=${month}&format=csv`}><FileSpreadsheet />CSV 表格</a>
             </div></details>
-            <button className="primary-button" onClick={() => openDay(today.startsWith(month) ? today : `${month}-01`)}><CirclePlus size={18} />添加辅食</button>
+            <button className="primary-button" onClick={() => openDay(periodDateSet.has(today) ? today : calendarView === "month" ? `${month}-01` : anchorDate)}><CirclePlus size={18} />添加辅食</button>
           </div>
         </div>
 
@@ -478,15 +560,18 @@ export function DiaryApp({ baby }: { baby: Baby }) {
           {(ingredientFilter || statusFilter || reactionFilter) && <button className="clear-filter" onClick={() => { setIngredientFilter(""); setStatusFilter(""); setReactionFilter(""); }}><X size={14} />清除筛选</button>}
         </div>
 
-        <div className="weekday-row">{WEEKDAYS.map((day) => <div key={day}>{day}</div>)}</div>
-        <div className={`month-grid ${loading ? "is-loading" : ""}`} aria-busy={loading}>
+        {calendarView !== "day" && <div className={`weekday-row view-${calendarView}`}>{WEEKDAYS.map((day) => <div key={day}>{day}</div>)}</div>}
+        <div className={`month-grid calendar-grid view-${calendarView} ${loading ? "is-loading" : ""}`} aria-label={`${CALENDAR_VIEW_LABELS[calendarView]}视图`} aria-busy={loading} onPointerDown={startSwipe} onPointerUp={finishSwipe} onPointerCancel={() => { swipeStartRef.current = null; }} onClickCapture={suppressClickAfterSwipe}>
           {gridDates.map((date) => {
             const dateMeals = filteredByDate.get(date) ?? [];
-            const inMonth = date.startsWith(month);
-            return <button key={date} className={`calendar-day ${inMonth ? "" : "outside"} ${date === today ? "today" : ""} ${date === selectedDate ? "selected" : ""}`} onClick={() => openDay(date)} aria-label={`${dateTitle(date)}，${dateMeals.length}餐`}>
-              <div className="day-number"><span>{Number(date.slice(8))}</span>{inMonth && <small>{formatAge(baby.birthDate, date)}</small>}</div>
-              <div className="day-meals">{dateMeals.slice(0, 2).map((meal) => <div className="calendar-meal" key={meal.id}><div><b>{meal.plannedTime || mealLabel(meal)}</b><span className={`status-dot ${meal.actualStatus}`} title={STATUS_LABELS[meal.actualStatus]} /></div><p>{meal.items.slice(0, 3).map(itemText).join(" · ")}</p></div>)}{dateMeals.length > 2 && <span className="more-meals">还有 {dateMeals.length - 2} 餐</span>}</div>
-              <div className="mobile-day-summary">{dateMeals.length > 0 && <><span className={`meal-count ${dateMeals.some((meal) => meal.actualStatus === "completed") ? "done" : ""}`}>{dateMeals.length}</span><i /></>}</div>
+            const inPeriod = calendarView !== "month" || date.startsWith(month);
+            const mealLimit = calendarView === "month" ? 2 : calendarView === "week" ? 4 : 8;
+            return <button key={date} className={`calendar-day ${inPeriod ? "" : "outside"} ${date === today ? "today" : ""} ${date === selectedDate ? "selected" : ""}`} onClick={() => openDay(date)} aria-label={`${dateTitle(date)}，${dateMeals.length}餐`}>
+              <div className="calendar-day-content">
+                <div className="day-number"><span>{Number(date.slice(8))}</span>{calendarView !== "month" && <b>{dateTitle(date)}</b>}<small>{formatAge(baby.birthDate, date)}</small></div>
+                <div className="day-meals">{dateMeals.slice(0, mealLimit).map((meal) => <div className="calendar-meal" key={meal.id}><div><b>{meal.plannedTime || mealLabel(meal)}</b><span className={`status-dot ${meal.actualStatus}`} title={STATUS_LABELS[meal.actualStatus]} /></div><p>{meal.items.slice(0, 3).map(itemText).join(" · ")}</p></div>)}{dateMeals.length > mealLimit && <span className="more-meals">还有 {dateMeals.length - mealLimit} 餐</span>}</div>
+                <div className="mobile-day-summary">{dateMeals.length > 0 && <><span className={`meal-count ${dateMeals.some((meal) => meal.actualStatus === "completed") ? "done" : ""}`}>{dateMeals.length}</span><i /></>}</div>
+              </div>
             </button>;
           })}
         </div>
@@ -495,7 +580,7 @@ export function DiaryApp({ baby }: { baby: Baby }) {
       <dialog ref={drawerRef} className="day-drawer" aria-labelledby="food-day-title" onClose={() => setDrawerOpen(false)}>
         <div className="drawer-header"><div><p className="eyebrow">DAILY MENU</p><h2 id="food-day-title">{dateTitle(selectedDate)}</h2><span>{formatAge(baby.birthDate, selectedDate)}</span></div><button className="icon-button" aria-label="关闭" onClick={() => setDrawerOpen(false)}><X /></button></div>
         <div className="drawer-body">
-          {formMeal !== undefined ? <MealEditor key={`${formMeal?.id ?? "new"}-${selectedDate}`} date={selectedDate} meal={formMeal} foods={foods} onCancel={() => setFormMeal(undefined)} onSaved={async () => { await loadMeals(month); setFormMeal(undefined); }} /> : <>
+          {formMeal !== undefined ? <MealEditor key={`${formMeal?.id ?? "new"}-${selectedDate}`} date={selectedDate} meal={formMeal} foods={foods} onCancel={() => setFormMeal(undefined)} onSaved={async () => { await loadMeals(); setFormMeal(undefined); }} /> : <>
             <div className="drawer-actions"><button className="primary-button" onClick={() => setFormMeal(null)}><Plus size={17} />添加一餐</button><button className="secondary-button" onClick={copyPrevious}><ClipboardCopy size={17} />复制上一餐</button></div>
             {selectedMeals.length ? <div className="meal-card-list">{selectedMeals.map((meal) => <article className="meal-card" key={meal.id}>
               <header><div><span>{meal.plannedTime || "未定时间"}</span><h3>{mealLabel(meal)}</h3></div><span className={`status-badge ${meal.actualStatus}`}>{STATUS_LABELS[meal.actualStatus]}</span></header>
