@@ -260,6 +260,7 @@ export function MedicationTracker({ baby }: { baby: Baby }) {
     record: records.find((record) => record.planId === plan.id && record.scheduledTime === scheduledTime) ?? null,
   }))).sort((left, right) => left.scheduledTime.localeCompare(right.scheduledTime)), [currentData, records]);
   const completedCount = occurrences.filter((occurrence) => occurrence.record).length;
+  const supplementalRecords = records.filter((record) => !occurrences.some((occurrence) => occurrence.record?.id === record.id));
   const dayWord = selectedDate === today ? "今日" : "当日";
 
   function changeDate(date: string) {
@@ -304,5 +305,134 @@ export function MedicationTracker({ baby }: { baby: Baby }) {
     }
   }
 
-  return <div className="module-page medication-page"><header className="module-heading"><div><p className="eyebrow">MEDICATION LOG</p><h1>{baby.name}的用药记录</h1><p>按计划核对当天用药，并保存每一次实际用药的时间和剂量。</p></div><div className="medication-heading-actions"><button type="button" className="secondary-button" onClick={() => setIntakeEditor({ plan: null, scheduledTime: null })}><Plus />补录用药</button><button type="button" className="primary-button" onClick={() => setPlanEditor(null)}><CalendarClock />新建计划</button></div></header><section className="feeding-date-bar" aria-label="选择查看日期"><button type="button" className="icon-button" aria-label="前一天" disabled={selectedDate <= baby.birthDate} onClick={() => changeDate(addDays(selectedDate, -1))}><ChevronLeft /></button><label><span>{selectedDate === today ? "今天" : formatDay(selectedDate)}</span><input type="date" value={selectedDate} min={baby.birthDate} max={today} aria-label="查看用药日期" onChange={(event) => { if (event.target.value) changeDate(event.target.value); }} /></label><button type="button" className="icon-button" aria-label="后一天" disabled={selectedDate >= today} onClick={() => changeDate(addDays(selectedDate, 1))}><ChevronRight /></button>{selectedDate !== today && <button type="button" className="feeding-today-button" onClick={() => changeDate(today)}>回到今天</button>}</section>{error && <div className="module-error module-error-with-action" role="alert"><span>{error}</span><button type="button" className="secondary-button" onClick={() => loadDay(selectedDate)}>重新加载</button></div>}{loading && !currentData ? <section className="module-state-card" aria-live="polite"><Pill /><strong>正在整理{dayWord}用药</strong><span>计划和实际记录会分别核对。</span></section> : <><section className="medication-summary-grid" aria-label={`${dayWord}用药摘要`}><article><CalendarClock /><span>计划用药</span><strong>{occurrences.length}</strong><small>个时间点</small></article><article><Check /><span>已登记</span><strong>{completedCount}</strong><small>按计划完成</small></article><article><Clock3 /><span>待记录</span><strong>{Math.max(0, occurrences.length - completedCount)}</strong><small>尚未登记</small></article></section><section className="medication-panel"><div className="medication-panel-heading"><div><p className="eyebrow">TODAY&apos;S SCHEDULE</p><h2>{dayWord}安排</h2></div><span>{formatDay(selectedDate)}</span></div>{occurrences.length ? <div className="medication-occurrence-list">{occurrences.map(({ plan, scheduledTime, record }) => <article key={`${plan.id}-${scheduledTime}`} className={record ? "completed" : "pending"}><time>{scheduledTime}</time><div><strong>{plan.medicationName}</strong><span>{formatDose(plan.doseAmount, plan.doseUnit)}</span></div>{record ? <div className="medication-occurrence-status"><Check /><span>已于 {record.takenTime} 登记</span></div> : <button type="button" className="primary-button" onClick={() => setIntakeEditor({ plan, scheduledTime })}><Check />登记已服</button>}</article>)}</div> : <div className="medication-empty"><Pill /><strong>{dayWord}没有计划用药</strong><span>仍可补录临时用药，或新建一个按频率重复的计划。</span></div>}</section><section className="medication-panel"><div className="medication-panel-heading"><div><p className="eyebrow">ACTUAL INTAKES</p><h2>{dayWord}实际记录</h2></div><span>{records.length} 条</span></div>{records.length ? <div className="medication-record-list">{records.map((record) => <article key={record.id}><time>{record.takenTime}</time><div><strong>{record.medicationName}</strong><span>{formatDose(record.doseAmount, record.doseUnit)}{record.scheduledTime ? ` · 计划 ${record.scheduledTime}` : " · 临时用药"}</span>{record.note && <p>{record.note}</p>}</div><button type="button" className="icon-button danger" disabled={deletingId !== null} onClick={() => removeRecord(record)} aria-label={`删除 ${record.medicationName} 用药记录`}><Trash2 /></button></article>)}</div> : <div className="medication-empty compact"><Clock3 /><strong>{dayWord}还没有实际用药记录</strong></div>}</section><section className="medication-panel medication-plans-panel"><div className="medication-panel-heading"><div><p className="eyebrow">MEDICATION PLANS</p><h2>用药计划</h2></div><button type="button" className="secondary-button" onClick={() => setPlanEditor(null)}><Plus />添加</button></div>{plans.length ? <div className="medication-plan-list">{plans.map((plan) => <article key={plan.id}><div className="medication-plan-icon"><Pill /></div><div><strong>{plan.medicationName}</strong><span>{formatDose(plan.doseAmount, plan.doseUnit)} · {medicationFrequencyText(plan.intervalDays, plan.scheduledTimes)}</span><small>{plan.startDate} 起{plan.endDate ? ` · 至 ${plan.endDate}` : " · 长期"}</small>{plan.note && <p>{plan.note}</p>}</div><div className="medication-plan-actions"><button type="button" onClick={() => setPlanEditor(plan)}><Pencil />编辑</button><button type="button" className="danger" disabled={deletingId !== null} onClick={() => removePlan(plan)}><Trash2 />删除</button></div></article>)}</div> : <div className="medication-empty"><CalendarClock /><strong>还没有用药计划</strong><span>创建计划后，会按开始日期和间隔天数生成每天的安排。</span></div>}</section></>}<dialog ref={planDialogRef} className="medication-dialog" aria-labelledby="medication-plan-dialog-title" onClose={() => setPlanEditor(undefined)}>{planEditor !== undefined && <><div className="medication-dialog-header"><div><p className="eyebrow">MEDICATION PLAN</p><h2 id="medication-plan-dialog-title">{planEditor ? "编辑用药计划" : "新建用药计划"}</h2></div><button type="button" className="icon-button" aria-label="关闭" onClick={() => setPlanEditor(undefined)}><X /></button></div><MedicationPlanForm baby={baby} date={selectedDate} plan={planEditor} onSaved={async () => { setPlanEditor(undefined); await loadDay(selectedDateRef.current); }} onCancel={() => setPlanEditor(undefined)} /></>}</dialog><dialog ref={intakeDialogRef} className="medication-dialog" aria-labelledby="medication-record-dialog-title" onClose={() => setIntakeEditor(undefined)}>{intakeEditor && <><div className="medication-dialog-header"><div><p className="eyebrow">ACTUAL INTAKE</p><h2 id="medication-record-dialog-title">登记实际用药</h2></div><button type="button" className="icon-button" aria-label="关闭" onClick={() => setIntakeEditor(undefined)}><X /></button></div><MedicationRecordForm baby={baby} date={selectedDate} editor={intakeEditor} onSaved={handleRecordSaved} onCancel={() => setIntakeEditor(undefined)} /></>}</dialog></div>;
+  return (
+    <div className="module-page medication-page">
+      <header className="module-heading">
+        <div>
+          <p className="eyebrow">MEDICATION LOG</p>
+          <h1>{baby.name}的用药记录</h1>
+          <p>按计划核对当天用药，并保存每一次实际用药的时间和剂量。</p>
+        </div>
+        <div className="medication-heading-actions">
+          <button type="button" className="secondary-button" onClick={() => setIntakeEditor({ plan: null, scheduledTime: null })}><Plus />补录用药</button>
+          <button type="button" className="primary-button" onClick={() => setPlanEditor(null)}><CalendarClock />新建计划</button>
+        </div>
+      </header>
+
+      <section className="feeding-date-bar" aria-label="选择查看日期">
+        <button type="button" className="icon-button" aria-label="前一天" disabled={selectedDate <= baby.birthDate} onClick={() => changeDate(addDays(selectedDate, -1))}><ChevronLeft /></button>
+        <label>
+          <span>{selectedDate === today ? "今天" : formatDay(selectedDate)}</span>
+          <input type="date" value={selectedDate} min={baby.birthDate} max={today} aria-label="查看用药日期" onChange={(event) => { if (event.target.value) changeDate(event.target.value); }} />
+        </label>
+        <button type="button" className="icon-button" aria-label="后一天" disabled={selectedDate >= today} onClick={() => changeDate(addDays(selectedDate, 1))}><ChevronRight /></button>
+        {selectedDate !== today && <button type="button" className="feeding-today-button" onClick={() => changeDate(today)}>回到今天</button>}
+      </section>
+
+      {error && <div className="module-error module-error-with-action" role="alert"><span>{error}</span><button type="button" className="secondary-button" onClick={() => loadDay(selectedDate)}>重新加载</button></div>}
+      {loading && !currentData ? (
+        <section className="module-state-card" aria-live="polite"><Pill /><strong>正在整理{dayWord}用药</strong><span>计划和实际结果会在同一清单中核对。</span></section>
+      ) : (
+        <>
+          <section className="medication-summary-grid" aria-label={`${dayWord}用药摘要`}>
+            <article><CalendarClock /><span>计划用药</span><strong>{occurrences.length}</strong><small>个时间点</small></article>
+            <article><Check /><span>已服</span><strong>{completedCount + supplementalRecords.length}</strong><small>实际用药</small></article>
+            <article><Clock3 /><span>待服</span><strong>{Math.max(0, occurrences.length - completedCount)}</strong><small>尚未登记</small></article>
+          </section>
+
+          <section className="medication-panel medication-today-panel">
+            <div className="medication-panel-heading">
+              <div><p className="eyebrow">DAILY MEDICATION</p><h2>{dayWord}用药</h2></div>
+              <span>{formatDay(selectedDate)} · {records.length} 条实际记录</span>
+            </div>
+            {occurrences.length || supplementalRecords.length ? (
+              <div className="medication-occurrence-list">
+                {occurrences.map(({ plan, scheduledTime, record }) => (
+                  <article key={`${plan.id}-${scheduledTime}`} className={record ? "completed" : "pending"}>
+                    <time>{scheduledTime}</time>
+                    <div>
+                      <strong>{plan.medicationName}</strong>
+                      <span>{formatDose(plan.doseAmount, plan.doseUnit)} · 计划用药</span>
+                      {record?.note && <p>{record.note}</p>}
+                    </div>
+                    {record ? (
+                      <div className="medication-occurrence-actions">
+                        <div className="medication-occurrence-status"><Check /><span>已服 {record.takenTime}</span></div>
+                        <button type="button" className="icon-button danger" disabled={deletingId !== null} onClick={() => removeRecord(record)} aria-label={`删除 ${record.medicationName} 用药记录`}><Trash2 /></button>
+                      </div>
+                    ) : (
+                      <button type="button" className="primary-button" onClick={() => setIntakeEditor({ plan, scheduledTime })}><Check />登记已服</button>
+                    )}
+                  </article>
+                ))}
+                {supplementalRecords.map((record) => (
+                  <article key={record.id} className="completed supplemental">
+                    <time>{record.takenTime}</time>
+                    <div>
+                      <strong>{record.medicationName}</strong>
+                      <span>{formatDose(record.doseAmount, record.doseUnit)} · 临时补录</span>
+                      {record.note && <p>{record.note}</p>}
+                    </div>
+                    <div className="medication-occurrence-actions">
+                      <div className="medication-occurrence-status"><Check /><span>已服</span></div>
+                      <button type="button" className="icon-button danger" disabled={deletingId !== null} onClick={() => removeRecord(record)} aria-label={`删除 ${record.medicationName} 用药记录`}><Trash2 /></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="medication-empty"><Pill /><strong>{dayWord}没有用药安排</strong><span>可补录临时用药，或新建一个按频率重复的计划。</span></div>
+            )}
+          </section>
+
+          <section className="medication-panel medication-plans-panel">
+            <div className="medication-panel-heading">
+              <div><p className="eyebrow">MEDICATION PLANS</p><h2>用药计划</h2></div>
+              <button type="button" className="secondary-button" onClick={() => setPlanEditor(null)}><Plus />添加</button>
+            </div>
+            {plans.length ? (
+              <div className="medication-plan-list">
+                {plans.map((plan) => (
+                  <article key={plan.id}>
+                    <div className="medication-plan-icon"><Pill /></div>
+                    <div>
+                      <strong>{plan.medicationName}</strong>
+                      <span>{formatDose(plan.doseAmount, plan.doseUnit)} · {medicationFrequencyText(plan.intervalDays, plan.scheduledTimes)}</span>
+                      <small>{plan.startDate} 起{plan.endDate ? ` · 至 ${plan.endDate}` : " · 长期"}</small>
+                      {plan.note && <p>{plan.note}</p>}
+                    </div>
+                    <div className="medication-plan-actions">
+                      <button type="button" onClick={() => setPlanEditor(plan)}><Pencil />编辑</button>
+                      <button type="button" className="danger" disabled={deletingId !== null} onClick={() => removePlan(plan)}><Trash2 />删除</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="medication-empty"><CalendarClock /><strong>还没有用药计划</strong><span>创建计划后，会按开始日期和间隔天数生成每天的安排。</span></div>
+            )}
+          </section>
+        </>
+      )}
+
+      <dialog ref={planDialogRef} className="medication-dialog" aria-labelledby="medication-plan-dialog-title" onClose={() => setPlanEditor(undefined)}>
+        {planEditor !== undefined && <>
+          <div className="medication-dialog-header">
+            <div><p className="eyebrow">MEDICATION PLAN</p><h2 id="medication-plan-dialog-title">{planEditor ? "编辑用药计划" : "新建用药计划"}</h2></div>
+            <button type="button" className="icon-button" aria-label="关闭" onClick={() => setPlanEditor(undefined)}><X /></button>
+          </div>
+          <MedicationPlanForm baby={baby} date={selectedDate} plan={planEditor} onSaved={async () => { setPlanEditor(undefined); await loadDay(selectedDateRef.current); }} onCancel={() => setPlanEditor(undefined)} />
+        </>}
+      </dialog>
+      <dialog ref={intakeDialogRef} className="medication-dialog" aria-labelledby="medication-record-dialog-title" onClose={() => setIntakeEditor(undefined)}>
+        {intakeEditor && <>
+          <div className="medication-dialog-header">
+            <div><p className="eyebrow">ACTUAL INTAKE</p><h2 id="medication-record-dialog-title">登记实际用药</h2></div>
+            <button type="button" className="icon-button" aria-label="关闭" onClick={() => setIntakeEditor(undefined)}><X /></button>
+          </div>
+          <MedicationRecordForm baby={baby} date={selectedDate} editor={intakeEditor} onSaved={handleRecordSaved} onCancel={() => setIntakeEditor(undefined)} />
+        </>}
+      </dialog>
+    </div>
+  );
 }

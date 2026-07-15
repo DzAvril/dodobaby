@@ -63,6 +63,12 @@ const browser = await chromium.launch({ executablePath, headless: true, args: ["
 try {
   const desktop = await authenticatedContext(browser, { width: 1440, height: 900 });
   const page = await desktop.newPage();
+  await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+  await page.locator(".home-date-header").waitFor();
+  assert.equal(await page.getByText("今天也一起", { exact: false }).count(), 0);
+  assert.doesNotMatch(await page.locator(".home-focus-card.medication h2").textContent(), /\d+\/\d+/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+
   await page.goto(`${baseUrl}/feeding`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /喂养记录/ }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
@@ -167,6 +173,10 @@ try {
 
   await page.goto(`${baseUrl}/food`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /辅食日历/ }).waitFor();
+  await page.locator(".food-filter-menu summary").click();
+  await page.getByText("记录状态", { exact: true }).waitFor();
+  await page.getByText("宝宝反应", { exact: true }).waitFor();
+  await page.locator(".food-filter-menu summary").click();
   const calendarViewSwitch = page.getByRole("group", { name: "辅食日历查看粒度" });
   assert.equal(await calendarViewSwitch.getByRole("button", { name: "月", exact: true }).getAttribute("aria-pressed"), "true");
   assert.equal(await page.locator(".calendar-grid.view-month .calendar-day").count(), 42);
@@ -188,6 +198,11 @@ try {
   });
   await page.waitForFunction((previous) => document.querySelector(".month-switcher h2")?.textContent !== previous, dayTitle);
   assert.equal(await page.locator(".day-drawer[open]").count(), 0);
+
+  await page.goto(`${baseUrl}/medications`, { waitUntil: "networkidle" });
+  await page.locator(".medication-today-panel").waitFor();
+  assert.equal(await page.locator(".medication-record-list").count(), 0);
+  assert.equal(await page.getByText("今日实际记录", { exact: true }).count(), 0);
 
   await page.goto(`${baseUrl}/growth`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /生长记录/ }).waitFor();
@@ -724,6 +739,8 @@ try {
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  assert.equal(await mobilePage.locator(".food-search-field").isVisible(), true);
+  assert.equal(await mobilePage.locator(".food-filter-menu summary").isVisible(), true);
   const mobileCalendarViewSwitch = mobilePage.getByRole("group", { name: "辅食日历查看粒度" });
   await mobileCalendarViewSwitch.getByRole("button", { name: "周", exact: true }).click();
   assert.equal(await mobilePage.locator(".calendar-grid.view-week .calendar-day").count(), 7);

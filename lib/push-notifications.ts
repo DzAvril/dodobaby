@@ -13,6 +13,7 @@ const VAPID_PRIVATE_KEY = "push_vapid_private_key";
 const REMINDER_ENABLED_KEY = "feeding_reminder_enabled";
 const REMINDER_MINUTES_KEY = "feeding_reminder_minutes";
 const SETTING_KEYS = [VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, REMINDER_ENABLED_KEY, REMINDER_MINUTES_KEY];
+const PUSH_REQUEST_TIMEOUT_MS = 10_000;
 
 export const DEFAULT_FEEDING_REMINDER_MINUTES = 180;
 export const MIN_FEEDING_REMINDER_MINUTES = 15;
@@ -162,6 +163,14 @@ function pushStatusCode(error: unknown) {
   return typeof error.statusCode === "number" ? error.statusCode : null;
 }
 
+function pushErrorMessage(error: unknown, statusCode: number | null) {
+  if (statusCode === 404 || statusCode === 410) return "当前设备订阅已失效，请重新开启通知";
+  if (statusCode === 400 || statusCode === 401 || statusCode === 403) return "推送服务拒绝了当前订阅，请关闭后重新开启通知";
+  const message = error instanceof Error ? error.message : "";
+  if (/timeout|timed out|ETIMEDOUT/i.test(message)) return "连接推送服务超时，请稍后重试";
+  return "推送服务暂时不可用，请稍后重试";
+}
+
 export async function sendTestPush(endpoint: string) {
   const subscription = getPushSubscription(endpoint);
   if (!subscription) throw new Error("当前设备尚未订阅通知");
@@ -172,7 +181,7 @@ export async function sendTestPush(endpoint: string) {
       body: "这台设备可以接收喂奶提醒。",
       tag: "dodobaby-notification-test",
       url: "/settings",
-    }), { TTL: 60 });
+    }), { TTL: 60, urgency: "high", timeout: PUSH_REQUEST_TIMEOUT_MS });
     getDb().update(pushSubscriptions).set({ failureCount: 0, lastSuccessAt: new Date(), updatedAt: new Date() })
       .where(eq(pushSubscriptions.id, subscription.id)).run();
   } catch (error) {
@@ -180,7 +189,7 @@ export async function sendTestPush(endpoint: string) {
     if (statusCode === 404 || statusCode === 410) deletePushSubscription(endpoint);
     else getDb().update(pushSubscriptions).set({ failureCount: sql`${pushSubscriptions.failureCount} + 1`, updatedAt: new Date() })
       .where(eq(pushSubscriptions.id, subscription.id)).run();
-    throw new Error(statusCode === 404 || statusCode === 410 ? "当前设备订阅已失效，请重新开启通知" : "测试通知发送失败");
+    throw new Error(pushErrorMessage(error, statusCode));
   }
 }
 
@@ -214,7 +223,7 @@ export async function dispatchFeedingReminders(now = new Date()) {
         body: `距离上次喂奶已经 ${elapsedFeedingText(elapsedMinutes)}。`,
         tag: `feeding-reminder-${baby.id}`,
         url: "/feeding",
-      }), { TTL: 1_800 });
+      }), { TTL: 1_800, urgency: "high", timeout: PUSH_REQUEST_TIMEOUT_MS });
       getDb().insert(feedingReminderDeliveries).values({
         id: crypto.randomUUID(),
         subscriptionId: subscription.id,

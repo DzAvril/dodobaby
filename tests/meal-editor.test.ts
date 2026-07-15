@@ -30,4 +30,8 @@ test("辅食日历默认显示月视图并提供周和天粒度", () => {
   assert.match(html, /aria-pressed="false">周<\/button>/);
   assert.match(html, /aria-pressed="false">天<\/button>/);
   assert.match(html, /aria-label="月视图"/);
+  assert.match(html, /class="food-search-field"/);
+  assert.match(html, /class="food-filter-menu"/);
+  assert.match(html, /记录状态/);
+  assert.match(html, /宝宝反应/);
 });

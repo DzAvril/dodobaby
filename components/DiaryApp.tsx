@@ -14,10 +14,10 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
-  Filter,
   Pencil,
   Plus,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -458,6 +458,7 @@ export function DiaryApp({ baby }: { baby: Baby }) {
   const periodMeals = useMemo(() => meals.filter((meal) => periodDateSet.has(meal.mealDate)), [meals, periodDateSet]);
   const completedCount = periodMeals.filter((meal) => meal.actualStatus === "completed").length;
   const uniqueFoods = new Set(periodMeals.flatMap((meal) => meal.items.map((item) => item.name.trim()).filter(Boolean))).size;
+  const activeFilterCount = [statusFilter, reactionFilter].filter(Boolean).length;
 
   function openDay(date: string) {
     if (calendarView === "month" && !date.startsWith(month)) {
@@ -527,18 +528,25 @@ export function DiaryApp({ baby }: { baby: Baby }) {
 
   return (
     <section className="food-module">
-      <section className="dashboard-head">
+      <header className="food-page-heading">
         <div><p className="eyebrow">FOOD CALENDAR</p><h1>{baby.name}的辅食日历</h1><p>计划好每一餐，也留下宝宝真实的接受和反应。</p></div>
-        <div className="month-stats" aria-label={`${CALENDAR_VIEW_LABELS[calendarView]}视图概览`}><div><strong>{periodMeals.length}</strong><span>餐计划</span></div><div><strong>{completedCount}</strong><span>已吃完</span></div><div><strong>{uniqueFoods}</strong><span>种食材</span></div></div>
-      </section>
+        <div className="food-period-summary" aria-label={`${CALENDAR_VIEW_LABELS[calendarView]}视图概览`}>
+          <span><strong>{periodMeals.length}</strong> 餐</span>
+          <span><strong>{completedCount}</strong> 次吃完</span>
+          <span><strong>{uniqueFoods}</strong> 种食材</span>
+        </div>
+      </header>
 
       <section className="calendar-card">
         <div className="calendar-toolbar">
-          <div className="calendar-navigation">
-            <div className="month-switcher"><button className="icon-button" aria-label={calendarView === "month" ? "上个月" : calendarView === "week" ? "上一周" : "前一天"} onClick={() => changePeriod(-1)}><ChevronLeft /></button><h2>{calendarPeriodTitle(calendarView, anchorDate)}</h2><button className="icon-button" aria-label={calendarView === "month" ? "下个月" : calendarView === "week" ? "下一周" : "后一天"} onClick={() => changePeriod(1)}><ChevronRight /></button><button className="today-button" onClick={returnToToday}>回到今天</button></div>
-            <div className="calendar-view-switch" role="group" aria-label="辅食日历查看粒度">{(["month", "week", "day"] as const).map((view) => <button key={view} type="button" className={calendarView === view ? "active" : ""} aria-pressed={calendarView === view} onClick={() => changeCalendarView(view)}>{CALENDAR_VIEW_LABELS[view]}</button>)}</div>
+          <div className="month-switcher">
+            <button className="icon-button" aria-label={calendarView === "month" ? "上个月" : calendarView === "week" ? "上一周" : "前一天"} onClick={() => changePeriod(-1)}><ChevronLeft /></button>
+            <h2>{calendarPeriodTitle(calendarView, anchorDate)}</h2>
+            <button className="icon-button" aria-label={calendarView === "month" ? "下个月" : calendarView === "week" ? "下一周" : "后一天"} onClick={() => changePeriod(1)}><ChevronRight /></button>
           </div>
-          <div className="toolbar-actions">
+          <div className="calendar-toolbar-controls">
+            <div className="calendar-view-switch" role="group" aria-label="辅食日历查看粒度">{(["month", "week", "day"] as const).map((view) => <button key={view} type="button" className={calendarView === view ? "active" : ""} aria-pressed={calendarView === view} onClick={() => changeCalendarView(view)}>{CALENDAR_VIEW_LABELS[view]}</button>)}</div>
+            <button className="today-button" onClick={returnToToday}>今天</button>
             <details className="export-menu"><summary className="secondary-button"><Download size={17} />导出</summary><div className="export-popover">
               <p>打印与分享</p>
               <a href={`/api/exports/month?month=${month}&format=pdf&scope=plan`}><FileText />计划菜单 PDF</a>
@@ -553,11 +561,16 @@ export function DiaryApp({ baby }: { baby: Baby }) {
           </div>
         </div>
 
-        <div className="filter-bar">
-          <div className="search-field"><Search size={17} /><input value={ingredientFilter} onChange={(event) => setIngredientFilter(event.target.value)} placeholder="搜索食材" aria-label="搜索食材" /></div>
-          <label className="select-field"><Filter size={16} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="按实际状态筛选"><option value="">全部状态</option>{STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label className="select-field"><select value={reactionFilter} onChange={(event) => setReactionFilter(event.target.value)} aria-label="按宝宝反应筛选"><option value="">全部反应</option>{REACTION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          {(ingredientFilter || statusFilter || reactionFilter) && <button className="clear-filter" onClick={() => { setIngredientFilter(""); setStatusFilter(""); setReactionFilter(""); }}><X size={14} />清除筛选</button>}
+        <div className="food-filter-bar">
+          <label className="food-search-field"><Search size={18} /><input value={ingredientFilter} onChange={(event) => setIngredientFilter(event.target.value)} placeholder="搜索食材" aria-label="搜索食材" />{ingredientFilter && <button type="button" className="icon-button" aria-label="清除食材搜索" onClick={() => setIngredientFilter("")}><X /></button>}</label>
+          <details className="food-filter-menu">
+            <summary className="secondary-button"><SlidersHorizontal size={17} />筛选{activeFilterCount > 0 && <span>{activeFilterCount}</span>}</summary>
+            <div className="food-filter-popover">
+              <label><span>记录状态</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="按实际状态筛选"><option value="">全部状态</option>{STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label><span>宝宝反应</span><select value={reactionFilter} onChange={(event) => setReactionFilter(event.target.value)} aria-label="按宝宝反应筛选"><option value="">全部反应</option>{REACTION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              {activeFilterCount > 0 && <button type="button" className="clear-filter" onClick={() => { setStatusFilter(""); setReactionFilter(""); }}><X size={14} />清除筛选</button>}
+            </div>
+          </details>
         </div>
 
         {calendarView !== "day" && <div className={`weekday-row view-${calendarView}`}>{WEEKDAYS.map((day) => <div key={day}>{day}</div>)}</div>}

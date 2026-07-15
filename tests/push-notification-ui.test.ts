@@ -9,7 +9,17 @@ test("设置页提供喂奶提醒间隔、设备订阅和测试通知操作", ()
   assert.match(source, /喂奶提醒间隔小时数/);
   assert.match(source, /开启当前设备通知/);
   assert.match(source, /发送测试通知/);
+  assert.match(source, /添加到主屏幕/);
+  assert.match(source, /jsonRequestWithTimeout/);
+  assert.match(source, /TEST_NOTIFICATION_TIMEOUT_MS/);
   assert.match(settingsPage, /PushNotificationSettings/);
+});
+
+test("推送服务设置连接超时并给出可恢复的订阅错误", () => {
+  const source = readFileSync(new URL("../lib/push-notifications.ts", import.meta.url), "utf8");
+  assert.match(source, /PUSH_REQUEST_TIMEOUT_MS/);
+  assert.match(source, /timeout: PUSH_REQUEST_TIMEOUT_MS/);
+  assert.match(source, /请关闭后重新开启通知/);
 });
 
 test("Service Worker 显示推送并将点击导航到对应模块", () => {

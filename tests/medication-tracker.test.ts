@@ -7,13 +7,15 @@ import { MedicationPlanForm, MedicationRecordForm, MedicationTracker } from "../
 
 const baby = { id: "baby-1", name: "DoDo", birthDate: "2026-01-01", timezone: "Asia/Shanghai" };
 
-test("用药模块独立呈现按日安排、实际记录和计划管理", () => {
+test("用药模块在同一清单核对计划和实际结果", () => {
   const html = renderToStaticMarkup(createElement(MedicationTracker, { baby }));
   const source = readFileSync(new URL("../components/MedicationTracker.tsx", import.meta.url), "utf8");
   assert.match(html, /DoDo的用药记录/);
   assert.match(html, /正在整理今日用药/);
-  assert.match(source, /\{dayWord\}安排/);
-  assert.match(source, /实际记录/);
+  assert.match(source, /\{dayWord\}用药/);
+  assert.match(source, /medication-occurrence-actions/);
+  assert.match(source, /临时补录/);
+  assert.doesNotMatch(source, /ACTUAL INTAKES/);
   assert.match(source, /用药计划/);
   assert.match(source, /补录用药/);
   assert.match(source, /\/api\/medications/);
