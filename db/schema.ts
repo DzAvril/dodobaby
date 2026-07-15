@@ -117,6 +117,36 @@ export const feedingRecords = sqliteTable(
   (table) => [index("feeding_records_baby_date_idx").on(table.babyId, table.feedingDate)],
 );
 
+export const pushSubscriptions = sqliteTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    expirationTime: integer("expiration_time", { mode: "timestamp_ms" }),
+    failureCount: integer("failure_count").notNull().default(0),
+    lastSuccessAt: integer("last_success_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [uniqueIndex("push_subscriptions_endpoint_unique").on(table.endpoint)],
+);
+
+export const feedingReminderDeliveries = sqliteTable(
+  "feeding_reminder_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id").notNull().references(() => pushSubscriptions.id, { onDelete: "cascade" }),
+    feedingRecordId: text("feeding_record_id").notNull().references(() => feedingRecords.id, { onDelete: "cascade" }),
+    sentAt: integer("sent_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("feeding_reminder_delivery_unique").on(table.subscriptionId, table.feedingRecordId),
+    index("feeding_reminder_deliveries_record_idx").on(table.feedingRecordId),
+  ],
+);
+
 export const vaccinationRecords = sqliteTable(
   "vaccination_records",
   {
@@ -237,6 +267,7 @@ export type MealItem = typeof mealItems.$inferSelect;
 export type FoodCatalogItem = typeof foodCatalogItems.$inferSelect;
 export type GrowthRecord = typeof growthRecords.$inferSelect;
 export type FeedingRecord = typeof feedingRecords.$inferSelect;
+export type PushSubscriptionRecord = typeof pushSubscriptions.$inferSelect;
 export type VaccinationRecord = typeof vaccinationRecords.$inferSelect;
 export type MedicationPlanRow = typeof medicationPlans.$inferSelect;
 export type MedicationRecord = typeof medicationRecords.$inferSelect;

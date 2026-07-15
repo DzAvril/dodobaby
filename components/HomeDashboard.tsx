@@ -12,6 +12,7 @@ import type { SleepDayResponse } from "@/components/SleepTracker";
 import type { MedicationDayResponse } from "@/components/MedicationTracker";
 import { jsonRequest } from "@/lib/client-api";
 import { formatAge, todayInTimezone } from "@/lib/dates";
+import { elapsedFeedingText, minutesSinceFeeding } from "@/lib/feeding-elapsed";
 
 type MealSummary = {
   id: string;
@@ -54,6 +55,12 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
   const [diaperFailed, setDiaperFailed] = useState(false);
   const [sleepFailed, setSleepFailed] = useState(false);
   const [medicationFailed, setMedicationFailed] = useState(false);
+  const [clock, setClock] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -102,6 +109,17 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
   const failedModuleCount = [mealFailed, feedingFailed, sleepFailed, diaperFailed, medicationFailed, growthFailed, vaccineFailed].filter(Boolean).length;
   const dueMedicationCount = medications?.duePlans.reduce((count, plan) => count + plan.scheduledTimes.length, 0) ?? 0;
   const completedMedicationCount = medications?.records.filter((record) => record.planId && record.scheduledTime).length ?? 0;
+  const feedingElapsed = useMemo(() => {
+    if (!feeding?.latest) return null;
+    try {
+      return elapsedFeedingText(minutesSinceFeeding(feeding.latest, baby.timezone, clock));
+    } catch {
+      return null;
+    }
+  }, [baby.timezone, clock, feeding]);
+  const latestFeedingTime = feeding?.latest
+    ? `${feeding.latest.feedingDate === today ? "今天" : feeding.latest.feedingDate.slice(5)} ${feeding.latest.startedTime}`
+    : null;
 
   return (
     <div className="module-page home-page">
@@ -112,7 +130,7 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
 
       <section className="home-module-section" aria-labelledby="daily-care-title"><div className="home-section-heading"><p className="eyebrow">DAILY CARE</p><h2 id="daily-care-title">日常记录</h2><span>高频照护，随手记下</span></div><div className="home-focus-grid daily">
         <article className="home-focus-card food"><div className="home-card-icon"><Utensils /></div><div><span>今日辅食</span><h2>{mealFailed ? "暂时无法加载" : loading ? "正在整理" : nextMeal ? nextMeal.plannedTime || "时间待定" : "还没有计划"}</h2><p>{mealFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日辅食计划。" : nextMeal ? nextMeal.items.slice(0, 3).map((item) => item.name).join("、") : "提前安排一餐，家人都能看到。"}</p></div><Link href="/food">查看辅食日记 <ArrowRight /></Link></article>
-        <article className="home-focus-card feeding"><div className="home-card-icon"><Milk /></div><div><span>今日喂养</span><h2>{feedingFailed ? "暂时无法加载" : feeding ? `${feeding.summary.sessionCount} 次记录` : loading ? "正在整理" : "还没有记录"}</h2><p>{feedingFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日喂养记录。" : feeding?.summary.sessionCount ? `亲喂 ${feeding.summary.directMinutes} 分钟 · 瓶喂 ${feeding.summary.bottleMl} ml${feeding.latest ? ` · 最近 ${feeding.latest.startedTime}` : ""}` : "记录亲喂时长、母乳和配方奶量。"}</p></div><Link href="/feeding">查看喂养记录 <ArrowRight /></Link></article>
+        <article className="home-focus-card feeding"><div className="home-card-icon"><Milk /></div><div><span>今日喂养</span><h2>{feedingFailed ? "暂时无法加载" : loading ? "正在整理" : feedingElapsed ? `距上次 ${feedingElapsed}` : "还没有记录"}</h2><p>{feedingFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日喂养记录。" : feeding?.latest ? `今天 ${feeding.summary.sessionCount} 次 · 亲喂 ${feeding.summary.directMinutes} 分钟 · 瓶喂 ${feeding.summary.bottleMl} ml · 最近 ${latestFeedingTime}` : "记录亲喂时长、母乳和配方奶量。"}</p></div><Link href="/feeding">查看喂养记录 <ArrowRight /></Link></article>
         <article className={`home-focus-card sleep${sleep?.active ? " active" : ""}`}><div className="home-card-icon"><MoonStar /></div><div><span>今日睡眠</span><h2>{sleepFailed ? "暂时无法加载" : sleep?.active ? "正在睡眠" : sleep ? durationText(sleep.summary.totalMinutes) : loading ? "正在整理" : "还没有记录"}</h2><p>{sleepFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日睡眠记录。" : sleep?.active ? `${sleep.active.startedTime} 开始 · 当前仍在睡眠` : sleep?.summary.sessionCount ? `${sleep.summary.sessionCount} 段 · 最长 ${durationText(sleep.summary.longestMinutes)}` : "记录入睡和醒来，跨午夜会按每天实际时长汇总。"}</p></div><Link href="/sleep">查看睡眠记录 <ArrowRight /></Link></article>
         <article className="home-focus-card diaper"><div className="home-card-icon"><BabyIcon /></div><div><span>今日尿布</span><h2>{diaperFailed ? "暂时无法加载" : diapers ? `${diapers.summary.totalCount} 次记录` : loading ? "正在整理" : "还没有记录"}</h2><p>{diaperFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日尿布记录。" : diapers?.summary.totalCount ? `小便 ${diapers.summary.wetCount} 次 · 大便 ${diapers.summary.dirtyCount} 次${diapers.latest ? ` · 最近 ${diapers.latest.changedTime}` : ""}` : "记录小便、大便与换尿布时的观察。"}</p></div><Link href="/diapers">查看尿布记录 <ArrowRight /></Link></article>
         <article className="home-focus-card medication"><div className="home-card-icon"><Pill /></div><div><span>今日用药</span><h2>{medicationFailed ? "暂时无法加载" : loading ? "正在整理" : dueMedicationCount ? `${completedMedicationCount}/${dueMedicationCount} 已登记` : medications?.records.length ? `${medications.records.length} 次记录` : "没有计划"}</h2><p>{medicationFailed ? "其他照护模块仍可正常查看。" : loading ? "正在读取今日用药安排。" : dueMedicationCount ? `今天有 ${dueMedicationCount} 个计划时间点。` : medications?.records.length ? "今天有临时用药记录。" : "按频率安排并登记实际用药。"}</p></div><Link href="/medications">查看用药记录 <ArrowRight /></Link></article>

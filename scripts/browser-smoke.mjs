@@ -325,6 +325,7 @@ try {
   await page.getByRole("heading", { name: "日常记录" }).waitFor();
   await page.getByRole("heading", { name: "成长与健康" }).waitFor();
   assert.equal(await page.locator(".home-focus-card").count(), 7);
+  assert.match(await page.locator(".home-focus-card.feeding h2").textContent(), /距上次 (刚刚|\d+分钟|\d+小时|\d+天)/);
   assert.equal(await page.locator(".home-focus-grid.daily").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2);
   await page.getByRole("link", { name: /查看睡眠记录/ }).waitFor();
   await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
@@ -800,6 +801,21 @@ try {
   await mobilePage.goto(`${baseUrl}/settings`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.locator(".care-bottom-nav a.active").textContent(), "更多");
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  const notificationCard = mobilePage.locator(".push-notification-settings");
+  await notificationCard.getByRole("heading", { name: "喂奶提醒" }).waitFor();
+  const feedingReminderSwitch = notificationCard.getByRole("switch", { name: "启用喂奶提醒" });
+  assert.equal(await feedingReminderSwitch.isChecked(), false);
+  await notificationCard.locator(".agent-access-toggle").click();
+  await mobilePage.waitForFunction(() => document.querySelector('input[aria-label="启用喂奶提醒"]')?.checked);
+  await notificationCard.getByLabel("喂奶提醒间隔小时数").fill("2.5");
+  await notificationCard.getByRole("button", { name: "保存提醒设置" }).click();
+  await notificationCard.getByText("喂奶提醒设置已保存", { exact: true }).waitFor();
+  assert.equal(await feedingReminderSwitch.isChecked(), true);
+  assert.equal(await notificationCard.getByLabel("喂奶提醒间隔小时数").inputValue(), "2.5");
+  await notificationCard.locator(".agent-access-toggle").click();
+  await notificationCard.getByRole("button", { name: "保存提醒设置" }).click();
+  await notificationCard.getByText("喂奶提醒设置已保存", { exact: true }).waitFor();
+  assert.equal(await feedingReminderSwitch.isChecked(), false);
   const agentAccessCard = mobilePage.locator(".agent-access-settings");
   await agentAccessCard.getByRole("heading", { name: "Agent / MCP 访问" }).waitFor();
   const generateAgentToken = agentAccessCard.locator(".agent-access-actions button").first();
@@ -819,9 +835,10 @@ try {
   await agentAccessCard.getByText("未配置 token", { exact: true }).waitFor();
   assert.equal(await agentAccessSwitch.isChecked(), false);
   await mobilePage.getByRole("button", { name: "退出登录" }).waitFor();
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
   await mobile.close();
 } finally {
   await browser.close();
 }
 
-console.log("Browser smoke passed: growth, sleep, diaper, feeding and vaccination CRUD, Agent access controls, scalable navigation, responsive layout, touch targets, and focus");
+console.log("Browser smoke passed: care CRUD, feeding elapsed time, PWA notification settings, Agent access controls, scalable navigation, responsive layout, touch targets, and focus");

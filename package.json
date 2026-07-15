@@ -14,6 +14,7 @@
     "db:generate": "drizzle-kit generate",
     "password:hash": "node scripts/hash-password.mjs",
     "agent:token": "node scripts/hash-agent-token.mjs",
+    "notifications:worker": "node scripts/notification-worker.mjs",
     "mcp:dodobaby": "tsx scripts/dodobaby-mcp.ts"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "sharp": "^0.35.3",
+    "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -34,6 +36,7 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/web-push": "^3.6.4",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",

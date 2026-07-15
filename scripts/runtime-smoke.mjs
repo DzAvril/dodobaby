@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 
 const baseUrl = process.argv[2] ?? "http://127.0.0.1:13000";
@@ -84,6 +84,8 @@ expectStatus(await request("/api/growth/missing-record", {
 expectStatus(await request("/api/growth/missing-record", { method: "DELETE", headers: { cookie: "" } }), 401, "unauthenticated growth delete");
 expectStatus(await request(`/api/diapers?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated diapers");
 expectStatus(await request(`/api/sleeps?date=${date}`, { headers: { cookie: "" } }), 401, "unauthenticated sleeps");
+expectStatus(await request("/api/notifications", { headers: { cookie: "" } }), 401, "unauthenticated notification settings");
+expectStatus(await request("/api/notifications/dispatch", { method: "POST", headers: { cookie: "" } }), 401, "unauthorized notification dispatch");
 expectStatus(await request("/api/sleeps/missing-record", {
   method: "PATCH",
   headers: { cookie: "", "content-type": "application/json" },
@@ -169,12 +171,62 @@ expectStatus(await request("/api/vaccines/missing-record", {
   method: "DELETE",
   headers: { origin: "https://evil.example" },
 }), 403, "cross-origin vaccination delete");
+expectStatus(await request("/api/notifications", {
+  method: "PATCH",
+  headers: { "content-type": "application/json", origin: "https://evil.example" },
+  body: JSON.stringify({ feedingReminderEnabled: true, feedingReminderMinutes: 180 }),
+}), 403, "cross-origin notification settings update");
 
 expectStatus(await request("/api/baby", {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ name: "Smoke Baby", birthDate: "2025-01-01", sex: "female", timezone: "Asia/Shanghai" }),
 }), 201, "create baby");
+
+let notificationSettings = await request("/api/notifications");
+expectStatus(notificationSettings, 200, "load notification settings");
+assert.equal(notificationSettings.body.settings.feedingReminderEnabled, false);
+assert.equal(notificationSettings.body.settings.feedingReminderMinutes, 180);
+assert.equal(notificationSettings.body.settings.subscriptionCount, 0);
+assert.match(notificationSettings.body.settings.vapidPublicKey, /^[A-Za-z0-9_-]+$/);
+expectStatus(await request("/api/notifications", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ feedingReminderEnabled: true, feedingReminderMinutes: 10 }),
+}), 400, "reject too-short feeding reminder interval");
+expectStatus(await request("/api/notifications", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ feedingReminderEnabled: true, feedingReminderMinutes: 150 }),
+}), 200, "update feeding reminder settings");
+const smokePushEndpoint = "https://push.example.test/runtime-smoke";
+expectStatus(await request("/api/notifications/subscriptions", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ endpoint: smokePushEndpoint, expirationTime: null, keys: { p256dh: "runtime-smoke-public-key", auth: "runtime-smoke-auth" } }),
+}), 201, "subscribe current notification device");
+notificationSettings = await request("/api/notifications");
+expectStatus(notificationSettings, 200, "reload notification settings");
+assert.equal(notificationSettings.body.settings.feedingReminderEnabled, true);
+assert.equal(notificationSettings.body.settings.feedingReminderMinutes, 150);
+assert.equal(notificationSettings.body.settings.subscriptionCount, 1);
+expectStatus(await request("/api/notifications/subscriptions", {
+  method: "DELETE",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ endpoint: smokePushEndpoint }),
+}), 200, "unsubscribe current notification device");
+expectStatus(await request("/api/notifications", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ feedingReminderEnabled: false, feedingReminderMinutes: 180 }),
+}), 200, "reset feeding reminder settings");
+const workerToken = createHash("sha256").update(`dodobaby-notification-worker:${sessionSecret}`).digest("base64url");
+const dispatchResult = await request("/api/notifications/dispatch", {
+  method: "POST",
+  headers: { "x-dodobaby-worker-token": workerToken },
+});
+expectStatus(dispatchResult, 200, "dispatch disabled feeding reminders");
+assert.deepEqual(dispatchResult.body, { sent: 0, skipped: "disabled" });
 
 let growthRecords = await request("/api/growth");
 expectStatus(growthRecords, 200, "load empty growth records");

@@ -8,6 +8,8 @@ import { MODULE_NAV_ITEMS } from "@/components/navigation-config";
 import type { AgentAccessStatus } from "@/lib/agent-access";
 import { jsonRequest } from "@/lib/client-api";
 import type { ModuleId } from "@/lib/navigation-preferences";
+import { PushNotificationSettings } from "@/components/PushNotificationSettings";
+import type { PushNotificationSettings as NotificationSettings } from "@/lib/push-notifications";
 
 function QuickModuleSettings({ initialModules, onSaved }: { initialModules: ModuleId[]; onSaved: () => void }) {
   const [modules, setModules] = useState(initialModules);
@@ -133,7 +135,7 @@ function AgentAccessSettings({ initialStatus }: { initialStatus: AgentAccessStat
   return <div className="settings-section agent-access-settings"><div className="settings-heading"><p className="eyebrow">AGENT ACCESS</p><h3>Agent / MCP 访问</h3><p>使用独立 token 让 Codex MCP 访问记录接口，不影响家庭网页登录。</p></div><div className="agent-access-controls"><label className="agent-access-toggle"><input type="checkbox" role="switch" aria-label="启用 Agent 访问" checked={status.enabled} disabled={pending !== null} onChange={(event) => changeEnabled(event.target.checked)} /><span className="agent-toggle-track" aria-hidden="true"><i /></span><span><strong>Agent 访问</strong><small>{status.enabled ? "已启用" : "已停用"}</small></span></label><div className={`agent-token-status ${status.configured ? "configured" : "empty"}`}><KeyRound /><div><span>Token 状态</span><strong>{status.configured ? "已配置 token" : "未配置 token"}</strong>{status.source === "environment" && <small>当前使用服务器环境变量中的兼容配置</small>}{status.source === "database" && updatedAt && <small>更新于 {updatedAt}</small>}</div></div></div>{token && <div className="agent-token-reveal" role="status"><Bot /><div><strong>新 token 只显示这一次</strong><p>请立即复制到 Codex MCP 配置或本机 token 文件，关闭或刷新后无法找回。</p><code>{token}</code></div><button type="button" className="icon-button" aria-label="复制 Agent token" title="复制 Agent token" onClick={copyToken}>{copied ? <Check /> : <Copy />}</button></div>}{error && <p className="form-error" role="alert">{error}</p>}<div className="agent-access-actions"><button type="button" className="secondary-button" disabled={pending !== null} onClick={generate}><RotateCw />{pending === "generate" ? "生成中…" : status.configured ? "生成新 token" : "生成 token"}</button><button type="button" className="secondary-button danger" disabled={pending !== null || !status.configured} onClick={revoke}><ShieldOff />{pending === "revoke" ? "撤销中…" : "撤销 token"}</button></div></div>;
 }
 
-export function SettingsPageClient({ initialBaby, initialQuickModules, initialAgentAccess }: { initialBaby: Baby; initialQuickModules: ModuleId[]; initialAgentAccess: AgentAccessStatus }) {
+export function SettingsPageClient({ initialBaby, initialQuickModules, initialAgentAccess, initialNotificationSettings }: { initialBaby: Baby; initialQuickModules: ModuleId[]; initialAgentAccess: AgentAccessStatus; initialNotificationSettings: NotificationSettings }) {
   const router = useRouter();
   const [baby, setBaby] = useState(initialBaby);
   const [foods, setFoods] = useState<FoodCatalogItem[]>([]);
@@ -165,6 +167,7 @@ export function SettingsPageClient({ initialBaby, initialQuickModules, initialAg
       <div className="settings-layout">
         <section id="baby-profile" className="settings-card"><BabyForm baby={baby} onSaved={(saved) => { setBaby(saved); router.refresh(); }} /></section>
         <section className="settings-card"><QuickModuleSettings initialModules={initialQuickModules} onSaved={() => router.refresh()} /></section>
+        <section className="settings-card"><PushNotificationSettings initialSettings={initialNotificationSettings} /></section>
         <section className="settings-card"><FoodCatalogManager foods={foods} onChanged={setFoods} /></section>
         <section className="settings-card"><PasswordForm /></section>
         <section className="settings-card"><AgentAccessSettings initialStatus={initialAgentAccess} /></section>
