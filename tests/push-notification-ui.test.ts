@@ -15,10 +15,13 @@ test("设置页提供喂奶提醒间隔、设备订阅和测试通知操作", ()
   assert.match(settingsPage, /PushNotificationSettings/);
 });
 
-test("推送服务设置连接超时并给出可恢复的订阅错误", () => {
+test("推送服务设置连接超时并区分订阅失效与 VAPID 配置错误", () => {
   const source = readFileSync(new URL("../lib/push-notifications.ts", import.meta.url), "utf8");
   assert.match(source, /PUSH_REQUEST_TIMEOUT_MS/);
   assert.match(source, /timeout: PUSH_REQUEST_TIMEOUT_MS/);
+  assert.match(source, /BadJwtToken/);
+  assert.match(source, /推送服务身份配置无效/);
+  assert.match(source, /logPushFailure/);
   assert.match(source, /请关闭后重新开启通知/);
 });
 

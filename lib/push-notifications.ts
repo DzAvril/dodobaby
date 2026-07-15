@@ -7,6 +7,7 @@ import { appSettings, feedingReminderDeliveries, pushSubscriptions, type PushSub
 import { elapsedFeedingText, minutesSinceFeeding } from "@/lib/feeding-elapsed";
 import { getLatestFeedingRecord } from "@/lib/feedings";
 import { getCurrentBaby } from "@/lib/meals";
+import { resolveVapidSubject } from "@/lib/vapid";
 
 const VAPID_PUBLIC_KEY = "push_vapid_public_key";
 const VAPID_PRIVATE_KEY = "push_vapid_private_key";
@@ -71,8 +72,10 @@ function reminderMinutes(value?: string) {
 }
 
 function vapidSubject() {
-  const configured = process.env.DODOBABY_VAPID_SUBJECT?.trim();
-  return configured || "mailto:notifications@dodobaby.local";
+  return resolveVapidSubject({
+    configuredSubject: process.env.DODOBABY_VAPID_SUBJECT,
+    appUrl: process.env.APP_URL,
+  });
 }
 
 function configureWebPush() {
@@ -163,7 +166,39 @@ function pushStatusCode(error: unknown) {
   return typeof error.statusCode === "number" ? error.statusCode : null;
 }
 
+function pushErrorReason(error: unknown) {
+  if (!error || typeof error !== "object" || !("body" in error) || typeof error.body !== "string") return null;
+  try {
+    const parsed = JSON.parse(error.body) as { reason?: unknown; error?: { status?: unknown; message?: unknown } };
+    if (typeof parsed.reason === "string") return parsed.reason;
+    if (typeof parsed.error?.status === "string") return parsed.error.status;
+    if (typeof parsed.error?.message === "string") return parsed.error.message;
+  } catch {
+    return error.body.trim().slice(0, 160) || null;
+  }
+  return null;
+}
+
+function pushEndpointHost(endpoint: string) {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return "invalid-endpoint";
+  }
+}
+
+function logPushFailure(context: string, subscription: PushSubscriptionRecord, error: unknown) {
+  console.error(context, {
+    subscriptionId: subscription.id,
+    pushHost: pushEndpointHost(subscription.endpoint),
+    statusCode: pushStatusCode(error),
+    reason: pushErrorReason(error),
+    message: error instanceof Error ? error.message : "Unknown push error",
+  });
+}
+
 function pushErrorMessage(error: unknown, statusCode: number | null) {
+  if (pushErrorReason(error) === "BadJwtToken") return "推送服务身份配置无效，请更新服务端配置后重试";
   if (statusCode === 404 || statusCode === 410) return "当前设备订阅已失效，请重新开启通知";
   if (statusCode === 400 || statusCode === 401 || statusCode === 403) return "推送服务拒绝了当前订阅，请关闭后重新开启通知";
   const message = error instanceof Error ? error.message : "";
@@ -185,6 +220,7 @@ export async function sendTestPush(endpoint: string) {
     getDb().update(pushSubscriptions).set({ failureCount: 0, lastSuccessAt: new Date(), updatedAt: new Date() })
       .where(eq(pushSubscriptions.id, subscription.id)).run();
   } catch (error) {
+    logPushFailure("Test push delivery failed", subscription, error);
     const statusCode = pushStatusCode(error);
     if (statusCode === 404 || statusCode === 410) deletePushSubscription(endpoint);
     else getDb().update(pushSubscriptions).set({ failureCount: sql`${pushSubscriptions.failureCount} + 1`, updatedAt: new Date() })
@@ -234,11 +270,11 @@ export async function dispatchFeedingReminders(now = new Date()) {
         .where(eq(pushSubscriptions.id, subscription.id)).run();
       sent += 1;
     } catch (error) {
+      logPushFailure("Feeding reminder delivery failed", subscription, error);
       const statusCode = pushStatusCode(error);
       if (statusCode === 404 || statusCode === 410) deletePushSubscription(subscription.endpoint);
       else getDb().update(pushSubscriptions).set({ failureCount: sql`${pushSubscriptions.failureCount} + 1`, updatedAt: now })
         .where(eq(pushSubscriptions.id, subscription.id)).run();
-      console.error(`Feeding reminder delivery failed for subscription ${subscription.id}`, statusCode ?? error);
     }
   }
   getDb().delete(feedingReminderDeliveries)
