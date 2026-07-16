@@ -55,7 +55,7 @@ export type MedicationDayResponse = {
   records: MedicationRecord[];
 };
 
-type IntakeEditor = { plan: MedicationPlan | null; scheduledTime: string | null };
+export type IntakeEditor = { plan: MedicationPlan | null; scheduledTime: string | null };
 const EMPTY_PLANS: MedicationPlan[] = [];
 const EMPTY_RECORDS: MedicationRecord[] = [];
 

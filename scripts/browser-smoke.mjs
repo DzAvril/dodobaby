@@ -336,14 +336,111 @@ try {
 
   await page.unroute("**/api/growth/*");
 
+  const homeMealSetup = await page.request.post(`${baseUrl}/api/meals`, {
+    headers: { origin: new URL(baseUrl).origin },
+    data: {
+      mealDate: today,
+      mealType: "lunch",
+      plannedTime: "12:00",
+      actualStatus: "planned",
+      items: [{ name: "首页快捷辅食", amount: 20, unit: "g", isFirstTry: false }],
+      reactionTags: [],
+    },
+  });
+  const homeMealSetupText = await homeMealSetup.text();
+  assert.equal(homeMealSetup.status(), 201, homeMealSetupText);
+  const homeMeal = JSON.parse(homeMealSetupText).meal;
+  const homeMedicationPlanSetup = await page.request.post(`${baseUrl}/api/medications/plans`, {
+    headers: { origin: new URL(baseUrl).origin },
+    data: {
+      medicationName: "首页测试 D3",
+      doseAmount: 1,
+      doseUnit: "滴",
+      intervalDays: 1,
+      scheduledTimes: ["08:00"],
+      startDate: today,
+      endDate: today,
+    },
+  });
+  const homeMedicationPlanSetupText = await homeMedicationPlanSetup.text();
+  assert.equal(homeMedicationPlanSetup.status(), 201, homeMedicationPlanSetupText);
+  const homeMedicationPlan = JSON.parse(homeMedicationPlanSetupText).plan;
+
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "日常记录" }).waitFor();
   await page.getByRole("heading", { name: "成长与健康" }).waitFor();
   assert.equal(await page.locator(".home-focus-card").count(), 7);
+  assert.equal(await page.locator(".home-card-detail-link").count(), 7);
+  assert.deepEqual(await page.locator(".home-card-detail-link").allTextContents(), ["", "", "", "", "", "", ""]);
   assert.match(await page.locator(".home-focus-card.feeding h2").textContent(), /距上次 (刚刚|\d+分钟|\d+小时|\d+天)/);
   assert.equal(await page.locator(".home-focus-grid.daily").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2);
   await page.getByRole("link", { name: /查看睡眠记录/ }).waitFor();
   await page.getByRole("link", { name: /查看尿布记录/ }).waitFor();
+
+  const homeFoodCard = page.locator(".home-focus-card.food");
+  const homeMealResponse = page.waitForResponse((response) => response.url().endsWith(`/api/meals/${homeMeal.id}`) && response.request().method() === "PATCH");
+  await homeFoodCard.getByRole("button", { name: "吃完" }).click();
+  assert.equal((await homeMealResponse).status(), 200);
+  await homeFoodCard.getByText("已登记吃完", { exact: true }).waitFor();
+  const removeHomeMeal = await page.request.delete(`${baseUrl}/api/meals/${homeMeal.id}`, { headers: { origin: new URL(baseUrl).origin } });
+  assert.equal(removeHomeMeal.status(), 200, await removeHomeMeal.text());
+
+  await page.locator(".home-focus-card.feeding").getByRole("button", { name: "记录一次喂养" }).click();
+  const homeFeedingDialog = page.getByRole("dialog", { name: "记录一次喂养" });
+  await homeFeedingDialog.waitFor();
+  const desktopHomeFeedingBounds = await homeFeedingDialog.boundingBox();
+  assert.ok(desktopHomeFeedingBounds);
+  await page.mouse.click(desktopHomeFeedingBounds.x + desktopHomeFeedingBounds.width + 20, desktopHomeFeedingBounds.y + 20);
+  await homeFeedingDialog.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "记录一次喂养");
+
+  const homeSleepCard = page.locator(".home-focus-card.sleep");
+  const homeSleepStartResponse = page.waitForResponse((response) => response.url().endsWith("/api/sleeps") && response.request().method() === "POST");
+  await homeSleepCard.getByRole("button", { name: "开始睡眠" }).click();
+  const homeSleepRecord = (await (await homeSleepStartResponse).json()).record;
+  await homeSleepCard.getByRole("button", { name: "记录醒来" }).waitFor();
+  const homeSleepEndResponse = page.waitForResponse((response) => response.url().endsWith(`/api/sleeps/${homeSleepRecord.id}/end`) && response.request().method() === "POST");
+  await homeSleepCard.getByRole("button", { name: "记录醒来" }).click();
+  assert.equal((await homeSleepEndResponse).status(), 200);
+  await homeSleepCard.getByRole("button", { name: "开始睡眠" }).waitFor();
+  const removeHomeSleep = await page.request.delete(`${baseUrl}/api/sleeps/${homeSleepRecord.id}`, { headers: { origin: new URL(baseUrl).origin } });
+  assert.equal(removeHomeSleep.status(), 200, await removeHomeSleep.text());
+
+  const homeDiaperCard = page.locator(".home-focus-card.diaper");
+  const homeDiaperResponse = page.waitForResponse((response) => response.url().endsWith("/api/diapers") && response.request().method() === "POST");
+  await homeDiaperCard.getByRole("button", { name: "记录小便", exact: true }).click();
+  const homeDiaperRecord = (await (await homeDiaperResponse).json()).record;
+  await homeDiaperCard.getByText("已记录小便", { exact: true }).waitFor();
+  const removeHomeDiaper = await page.request.delete(`${baseUrl}/api/diapers/${homeDiaperRecord.id}`, { headers: { origin: new URL(baseUrl).origin } });
+  assert.equal(removeHomeDiaper.status(), 200, await removeHomeDiaper.text());
+
+  const homeMedicationCard = page.locator(".home-focus-card.medication");
+  const homeMedicationResponse = page.waitForResponse((response) => response.url().endsWith("/api/medications") && response.request().method() === "POST");
+  await homeMedicationCard.getByRole("button", { name: "首页测试 D3 1滴 · 08:00" }).click();
+  const homeMedicationRecord = (await (await homeMedicationResponse).json()).record;
+  await homeMedicationCard.getByText("已登记 首页测试 D3 1滴", { exact: true }).waitFor();
+  const removeHomeMedication = await page.request.delete(`${baseUrl}/api/medications/${homeMedicationRecord.id}`, { headers: { origin: new URL(baseUrl).origin } });
+  assert.equal(removeHomeMedication.status(), 200, await removeHomeMedication.text());
+  const removeHomeMedicationPlan = await page.request.delete(`${baseUrl}/api/medications/plans/${homeMedicationPlan.id}`, { headers: { origin: new URL(baseUrl).origin } });
+  assert.equal(removeHomeMedicationPlan.status(), 200, await removeHomeMedicationPlan.text());
+
+  await homeMedicationCard.getByRole("button", { name: "补记用药" }).click();
+  const homeMedicationDialog = page.getByRole("dialog", { name: "补记临时用药" });
+  await homeMedicationDialog.waitFor();
+  await homeMedicationDialog.getByRole("button", { name: "取消" }).click();
+  await homeMedicationDialog.waitFor({ state: "hidden" });
+
+  await page.locator(".home-focus-card.growth").getByRole("button", { name: "记录测量" }).click();
+  const homeGrowthDialog = page.getByRole("dialog", { name: "添加生长测量" });
+  await homeGrowthDialog.waitFor();
+  await homeGrowthDialog.getByRole("button", { name: "取消" }).click();
+  await homeGrowthDialog.waitFor({ state: "hidden" });
+
+  await page.locator(".home-focus-card.vaccine").getByRole("button", { name: "添加疫苗记录" }).click();
+  const homeVaccineDialog = page.getByRole("dialog", { name: "登记疫苗记录" });
+  await homeVaccineDialog.waitFor();
+  await homeVaccineDialog.getByRole("button", { name: "取消" }).click();
+  await homeVaccineDialog.waitFor({ state: "hidden" });
 
   await page.goto(`${baseUrl}/diapers`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: /尿布记录/ }).waitFor();
@@ -662,6 +759,23 @@ try {
 
   const mobile = await authenticatedContext(browser, { width: 390, height: 844 });
   const mobilePage = await mobile.newPage();
+
+  await mobilePage.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+  assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
+  assert.equal(await mobilePage.locator(".home-card-quick-area").count(), 7);
+  assert.deepEqual(await undersizedTouchTargets(mobilePage), []);
+  const mobileHomeFeedingTrigger = mobilePage.getByRole("button", { name: "记录一次喂养" });
+  await mobileHomeFeedingTrigger.click();
+  const mobileHomeFeedingDialog = mobilePage.getByRole("dialog", { name: "记录一次喂养" });
+  const homeFeedingBounds = await mobileHomeFeedingDialog.boundingBox();
+  assert.ok(homeFeedingBounds && Math.abs(homeFeedingBounds.y + homeFeedingBounds.height - 844) <= 1, `mobile home feeding dialog is not bottom aligned: ${JSON.stringify(homeFeedingBounds)}`);
+  assert.ok(homeFeedingBounds && Math.abs(homeFeedingBounds.width - 390) <= 1, `mobile home feeding dialog is not full width: ${JSON.stringify(homeFeedingBounds)}`);
+  const homeFeedingSaveBounds = await mobileHomeFeedingDialog.getByRole("button", { name: "添加记录" }).boundingBox();
+  assert.ok(homeFeedingSaveBounds && homeFeedingSaveBounds.y + homeFeedingSaveBounds.height <= 844, `mobile home feeding action is not visible: ${JSON.stringify(homeFeedingSaveBounds)}`);
+  await mobileHomeFeedingDialog.getByRole("button", { name: "关闭快捷记录" }).click();
+  await mobileHomeFeedingDialog.waitFor({ state: "hidden" });
+  await mobilePage.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "记录一次喂养");
+
   await mobilePage.goto(`${baseUrl}/feeding`, { waitUntil: "networkidle" });
   assert.equal(await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false);
   assert.deepEqual(await mobilePage.locator(".care-bottom-nav a").allTextContents(), ["首页", "喂养", "睡眠", "尿布", "更多"]);

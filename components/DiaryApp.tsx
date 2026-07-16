@@ -27,7 +27,7 @@ import { jsonRequest } from "@/lib/client-api";
 export type BabySex = "male" | "female" | "unknown";
 export type Baby = { id: string; name: string; birthDate: string; sex?: BabySex; timezone: string };
 export type FoodCatalogItem = { id: string; name: string; defaultUnit: string | null };
-type MealItem = {
+export type MealItem = {
   id?: string;
   name: string;
   amount: number | null;
@@ -35,7 +35,7 @@ type MealItem = {
   preparation: string | null;
   isFirstTry: boolean;
 };
-type Meal = {
+export type Meal = {
   id: string;
   mealDate: string;
   mealType: string;

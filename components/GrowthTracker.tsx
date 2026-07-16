@@ -38,7 +38,7 @@ function optionalNumber(value: string) {
   return value.trim() === "" ? null : Number(value);
 }
 
-function GrowthRecordForm({ baby, record, onSaved, onCancel }: { baby: Baby; record: GrowthRecord | null; onSaved: (record: GrowthRecord) => void | Promise<void>; onCancel: () => void }) {
+export function GrowthRecordForm({ baby, record, onSaved, onCancel }: { baby: Baby; record: GrowthRecord | null; onSaved: (record: GrowthRecord) => void | Promise<void>; onCancel: () => void }) {
   const [measuredDate, setMeasuredDate] = useState(record?.measuredDate ?? todayInTimezone(baby.timezone));
   const [weightKg, setWeightKg] = useState(record?.weightKg?.toString() ?? "");
   const [heightCm, setHeightCm] = useState(record?.heightCm?.toString() ?? "");
