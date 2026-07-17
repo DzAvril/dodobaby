@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Baby, ChevronLeft, ChevronRight, Clock3, Milk, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Baby, ChevronLeft, ChevronRight, Clock3, Milk, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import type { Baby as BabyProfile } from "@/components/DiaryApp";
 import { jsonRequest } from "@/lib/client-api";
 import { addDays, todayInTimezone } from "@/lib/dates";
@@ -79,23 +79,27 @@ function feedingDescription(record: FeedingRecord) {
   ].filter(Boolean).join(" · ");
 }
 
-export function FeedingRecordForm({ baby, date, record, onSaved, onCancel }: {
+export function FeedingRecordForm({ baby, date, record, previousRecord, onSaved, onCancel }: {
   baby: BabyProfile;
   date: string;
   record: FeedingRecord | null;
+  previousRecord?: FeedingRecord | null;
   onSaved: (savedDate: string) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const currentMinute = currentMinuteInTimezone(baby.timezone);
+  const initialAmounts = record ?? previousRecord;
   const [feedingDate, setFeedingDate] = useState(record?.feedingDate ?? date);
   const [startedTime, setStartedTime] = useState(record?.startedTime ?? currentMinute.time);
-  const [leftDurationMinutes, setLeftDurationMinutes] = useState(record?.leftDurationMinutes?.toString() ?? "");
-  const [rightDurationMinutes, setRightDurationMinutes] = useState(record?.rightDurationMinutes?.toString() ?? "");
-  const [expressedMilkMl, setExpressedMilkMl] = useState(record?.expressedMilkMl?.toString() ?? "");
-  const [formulaMl, setFormulaMl] = useState(record?.formulaMl?.toString() ?? "");
+  const [leftDurationMinutes, setLeftDurationMinutes] = useState(initialAmounts?.leftDurationMinutes?.toString() ?? "");
+  const [rightDurationMinutes, setRightDurationMinutes] = useState(initialAmounts?.rightDurationMinutes?.toString() ?? "");
+  const [expressedMilkMl, setExpressedMilkMl] = useState(initialAmounts?.expressedMilkMl?.toString() ?? "");
+  const [formulaMl, setFormulaMl] = useState(initialAmounts?.formulaMl?.toString() ?? "");
   const [note, setNote] = useState(record?.note ?? "");
+  const [appliedPreviousRecord, setAppliedPreviousRecord] = useState<FeedingRecord | null>(record ? null : previousRecord ?? null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const amountsDirtyRef = useRef(false);
   const today = todayInTimezone(baby.timezone);
   const hasAmount = [leftDurationMinutes, rightDurationMinutes, expressedMilkMl, formulaMl].some(isPositiveNumber);
   const directMinutes = (optionalNumber(leftDurationMinutes) ?? 0) + (optionalNumber(rightDurationMinutes) ?? 0);
@@ -114,6 +118,35 @@ export function FeedingRecordForm({ baby, date, record, onSaved, onCancel }: {
         : !isValidMilkAmount(expressedMilkMl) || !isValidMilkAmount(formulaMl)
           ? "单项瓶喂奶量需大于 0，且不能超过 1000 ml。"
           : "";
+
+  useEffect(() => {
+    if (record || previousRecord !== undefined) return;
+    let active = true;
+    jsonRequest<FeedingDayResponse>(`/api/feedings?date=${date}`)
+      .then((data) => {
+        if (!active || amountsDirtyRef.current || !data.latest) return;
+        setAppliedPreviousRecord(data.latest);
+        setLeftDurationMinutes(data.latest.leftDurationMinutes?.toString() ?? "");
+        setRightDurationMinutes(data.latest.rightDurationMinutes?.toString() ?? "");
+        setExpressedMilkMl(data.latest.expressedMilkMl?.toString() ?? "");
+        setFormulaMl(data.latest.formulaMl?.toString() ?? "");
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [date, previousRecord, record]);
+
+  function markAmountsChanged() {
+    amountsDirtyRef.current = true;
+  }
+
+  function clearRepeatedAmounts() {
+    markAmountsChanged();
+    setAppliedPreviousRecord(null);
+    setLeftDurationMinutes("");
+    setRightDurationMinutes("");
+    setExpressedMilkMl("");
+    setFormulaMl("");
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -149,12 +182,14 @@ export function FeedingRecordForm({ baby, date, record, onSaved, onCancel }: {
         <label><span>开始时间</span><input type="time" value={startedTime} max={feedingDate === today ? currentMinute.time : undefined} onChange={(event) => setStartedTime(event.target.value)} required autoFocus /></label>
       </div>
 
+      {appliedPreviousRecord && <div className="feeding-repeat-template"><RotateCcw aria-hidden="true" /><div><span>已沿用上次喂养</span><strong>{feedingDescription(appliedPreviousRecord)}</strong></div><button type="button" onClick={clearRepeatedAmounts}>清空带入</button></div>}
+
       <fieldset className="feeding-form-section direct">
         <legend><Baby />亲喂时长</legend>
         <p>可以只记一侧，也可以把左右两侧记在同一次喂养中。</p>
         <div>
-          <label><span>左侧 <small>分钟</small></span><input type="number" inputMode="numeric" min="1" max="180" step="1" value={leftDurationMinutes} onChange={(event) => setLeftDurationMinutes(event.target.value)} placeholder="例如 12" /></label>
-          <label><span>右侧 <small>分钟</small></span><input type="number" inputMode="numeric" min="1" max="180" step="1" value={rightDurationMinutes} onChange={(event) => setRightDurationMinutes(event.target.value)} placeholder="例如 10" /></label>
+          <label><span>左侧 <small>分钟</small></span><input type="number" inputMode="numeric" min="1" max="180" step="1" value={leftDurationMinutes} onChange={(event) => { markAmountsChanged(); setLeftDurationMinutes(event.target.value); }} placeholder="例如 12" /></label>
+          <label><span>右侧 <small>分钟</small></span><input type="number" inputMode="numeric" min="1" max="180" step="1" value={rightDurationMinutes} onChange={(event) => { markAmountsChanged(); setRightDurationMinutes(event.target.value); }} placeholder="例如 10" /></label>
         </div>
       </fieldset>
 
@@ -162,8 +197,8 @@ export function FeedingRecordForm({ baby, date, record, onSaved, onCancel }: {
         <legend><Milk />瓶喂奶量</legend>
         <p>同一会话里混合喂养时，可以与亲喂时长一起填写。</p>
         <div>
-          <label><span>母乳 <small>ml</small></span><input type="number" inputMode="numeric" min="1" max="1000" step="1" value={expressedMilkMl} onChange={(event) => setExpressedMilkMl(event.target.value)} placeholder="例如 60" /></label>
-          <label><span>配方奶 <small>ml</small></span><input type="number" inputMode="numeric" min="1" max="1000" step="1" value={formulaMl} onChange={(event) => setFormulaMl(event.target.value)} placeholder="例如 90" /></label>
+          <label><span>母乳 <small>ml</small></span><input type="number" inputMode="numeric" min="1" max="1000" step="1" value={expressedMilkMl} onChange={(event) => { markAmountsChanged(); setExpressedMilkMl(event.target.value); }} placeholder="例如 60" /></label>
+          <label><span>配方奶 <small>ml</small></span><input type="number" inputMode="numeric" min="1" max="1000" step="1" value={formulaMl} onChange={(event) => { markAmountsChanged(); setFormulaMl(event.target.value); }} placeholder="例如 90" /></label>
         </div>
       </fieldset>
 
@@ -304,7 +339,7 @@ export function FeedingTracker({ baby }: { baby: BabyProfile }) {
 
       <dialog ref={dialogRef} className="feeding-dialog" aria-labelledby="feeding-dialog-title" onClose={() => setEditor(undefined)}>
         <div className="feeding-dialog-header"><div><p className="eyebrow">FEEDING SESSION</p><h2 id="feeding-dialog-title">{editor ? "编辑喂养" : "添加喂养"}</h2></div><button type="button" className="icon-button" aria-label="关闭" onClick={() => setEditor(undefined)}><X /></button></div>
-        {editor !== undefined && <FeedingRecordForm key={editor?.id ?? `new-${selectedDate}`} baby={baby} date={selectedDate} record={editor} onCancel={() => setEditor(undefined)} onSaved={handleSaved} />}
+        {editor !== undefined && <FeedingRecordForm key={editor?.id ?? `new-${selectedDate}-${hasSelectedDayData ? dayData?.latest?.id ?? "none" : "loading"}`} baby={baby} date={selectedDate} record={editor} previousRecord={editor ? undefined : hasSelectedDayData ? dayData?.latest ?? null : undefined} onCancel={() => setEditor(undefined)} onSaved={handleSaved} />}
       </dialog>
     </div>
   );

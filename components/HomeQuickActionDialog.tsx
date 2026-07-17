@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { MealEditor, type Baby, type FoodCatalogItem } from "@/components/DiaryApp";
 import { DiaperRecordForm, type DiaperType } from "@/components/DiaperTracker";
-import { FeedingRecordForm } from "@/components/FeedingTracker";
+import { FeedingRecordForm, type FeedingRecord } from "@/components/FeedingTracker";
 import { GrowthRecordForm } from "@/components/GrowthTracker";
 import { MedicationRecordForm } from "@/components/MedicationTracker";
 import { SleepRecordForm } from "@/components/SleepTracker";
@@ -42,6 +42,7 @@ export function HomeQuickActionDialog({
   date,
   editor,
   foods,
+  previousFeeding,
   onClose,
   onSaved,
 }: {
@@ -49,6 +50,7 @@ export function HomeQuickActionDialog({
   date: string;
   editor: HomeQuickEditor | null;
   foods: FoodCatalogItem[];
+  previousFeeding?: FeedingRecord | null;
   onClose: () => void;
   onSaved: (section: QuickSection) => void | Promise<void>;
 }) {
@@ -88,7 +90,7 @@ export function HomeQuickActionDialog({
       </div>
       {editor && <div className="home-quick-dialog-body" key={editorKey(editor)}>
         {editor.kind === "meal" && <MealEditor date={date} meal={null} foods={foods} onCancel={onClose} onSaved={() => finish("meal")} />}
-        {editor.kind === "feeding" && <FeedingRecordForm baby={baby} date={date} record={null} onCancel={onClose} onSaved={() => finish("feeding")} />}
+        {editor.kind === "feeding" && <FeedingRecordForm baby={baby} date={date} record={null} previousRecord={previousFeeding} onCancel={onClose} onSaved={() => finish("feeding")} />}
         {editor.kind === "sleep" && <SleepRecordForm baby={baby} date={date} mode="manual" record={null} onCancel={onClose} onSaved={() => finish("sleep")} />}
         {editor.kind === "diaper" && <DiaperRecordForm baby={baby} date={date} record={null} preset={editor.preset} onCancel={onClose} onSaved={() => finish("diaper")} />}
         {editor.kind === "medication" && <MedicationRecordForm baby={baby} date={date} editor={{ plan: null, scheduledTime: null }} onCancel={onClose} onSaved={() => finish("medication")} />}

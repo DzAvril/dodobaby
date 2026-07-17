@@ -431,7 +431,7 @@ export function HomeDashboard({ baby }: { baby: Baby }) {
         </div>
       </section>
 
-      <HomeQuickActionDialog baby={baby} date={today} editor={editor} foods={foods} onClose={closeEditor} onSaved={editorSaved} />
+      <HomeQuickActionDialog baby={baby} date={today} editor={editor} foods={foods} previousFeeding={feeding?.latest} onClose={closeEditor} onSaved={editorSaved} />
     </div>
   );
 }

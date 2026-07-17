@@ -95,6 +95,18 @@ try {
   const recordCard = page.locator(".feeding-record-card").filter({ hasText: note });
   await recordCard.waitFor();
   assert.match(await recordCard.textContent(), /配方奶 61 ml/);
+
+  await trigger.click();
+  await dialog.waitFor();
+  assert.match(await dialog.locator(".feeding-repeat-template").textContent(), /已沿用上次喂养/);
+  assert.equal(await dialog.locator(".feeding-form-section.bottle input").nth(1).inputValue(), "61");
+  assert.equal(await dialog.locator("textarea").inputValue(), "");
+  await dialog.getByRole("button", { name: "清空带入" }).click();
+  assert.deepEqual(await dialog.locator(".feeding-form-section input").evaluateAll((inputs) => inputs.map((input) => input.value)), ["", "", "", ""]);
+  assert.equal(await dialog.getByRole("button", { name: "添加记录" }).isDisabled(), true);
+  await dialog.getByRole("button", { name: "关闭" }).click();
+  await dialog.waitFor({ state: "hidden" });
+
   await recordCard.getByRole("button", { name: "编辑" }).click();
   const editDialog = page.getByRole("dialog", { name: "编辑喂养" });
   await editDialog.locator(".feeding-form-section.bottle input").nth(1).fill("62");
